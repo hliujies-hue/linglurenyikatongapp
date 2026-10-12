@@ -26,7 +26,7 @@ public final class TerminalEntryActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private final ExecutorService network = Executors.newSingleThreadExecutor();
-    private final PlatformClient platform = new PlatformClient("https://ykt.qiliai.com");
+    private final PlatformClient platform = new PlatformClient("https://yktapi.qiliai.com");
     private int pageVersion;
     private TextView status;
     private Button activate;
