@@ -44,4 +44,4 @@ if($null -eq $entry) {
 [void]$entry.SetAttribute('exported',$android,'true')
 $xml.Save($path)
 Write-Host 'Demo overlay applied: real online activation, guarded terminal entry, private Demo screens.'
-Write-Host 'Platform login and admission are not implemented in this build.'
+Write-Host 'Password-only login UI is implemented. Backend terminal login deployment and admission integration are pending.'
