@@ -11,12 +11,12 @@ public final class PlatformClient {
     private final String origin;
     private String token = "";
     public PlatformClient(String origin) {
-        if (!"https://yktapi.qiliai.com".equals(origin)) throw new IllegalArgumentException("平台地址未配置");
+        TerminalEndpointPolicy.requireOrigin(origin);
         this.origin = origin;
     }
     public void token(String token) { this.token = token; }
     public JSONObject request(String path, JSONObject body) throws Exception {
-        if (!path.startsWith("/api/")) throw new IllegalArgumentException("接口地址无效");
+        TerminalEndpointPolicy.requirePath(path);
         HttpsURLConnection connection = (HttpsURLConnection) new URL(origin+path).openConnection();
         connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(5000); connection.setReadTimeout(10000);

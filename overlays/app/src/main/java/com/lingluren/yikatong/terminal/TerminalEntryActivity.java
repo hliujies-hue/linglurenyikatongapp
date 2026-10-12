@@ -12,6 +12,7 @@ import android.widget.*;
 import android.graphics.drawable.GradientDrawable;
 import android.text.method.PasswordTransformationMethod;
 import android.os.SystemClock;
+import android.provider.Settings;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.util.ArrayList;
@@ -28,6 +29,14 @@ public final class TerminalEntryActivity extends Activity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final PlatformClient platform = new PlatformClient("https://yktapi.qiliai.com");
     private int pageVersion;
+    private long bindingGeneration;
+    private boolean communicating;
+    private final Runnable heartbeatTick = () -> sendHeartbeat();
+    private String fingerprint() {
+        String id=Settings.Secure.getString(getContentResolver(),Settings.Secure.ANDROID_ID);
+        if(id==null || id.length()<8) throw new IllegalStateException("设备指纹读取失败，请联系平台人员");
+        return getPackageName()+":"+id;
+    }
     private TextView status;
     private Button activate;
     private BdFaceAuth auth;
@@ -137,16 +146,46 @@ public final class TerminalEntryActivity extends Activity {
             network.execute(()->{try{
                 JSONObject result=platform.request("/api/terminal/login",new JSONObject().put("username",name).put("password",secret));
                 platform.token(result.getString("accessToken"));
-                main.post(()->{if(destroyed||version!=pageVersion)return;password.setText("");showAccount(result);});
+                JSONObject binding=platform.request("/api/terminal/bind",new JSONObject()
+                    .put("fingerprint",fingerprint())
+                    .put("license",PreferencesUtil.getString("activate_online_key",""))
+                    .put("appVersion","0.2.0-binding"));
+                main.post(()->{if(destroyed||version!=pageVersion)return;password.setText("");showAccount(result,binding);});
             }catch(Exception error){platform.logout();main.post(()->{if(destroyed||version!=pageVersion)return;login.setEnabled(true);status.setText(error.getMessage());});}});
         });
     }
-    private void showAccount(JSONObject info) {
-        LinearLayout root=page("账号验证成功");status.setText("当前账号："+info.optString("username")+"\n设备接入与人员同步尚未开通，暂不可扫脸通行。");
+    private void showAccount(JSONObject info,JSONObject binding) {
+        LinearLayout root=page("设备状态");
+        bindingGeneration=binding.optLong("generation");
+        communicating=true;
+        status.setText("设备："+binding.optString("deviceName")+"\n账号："+info.optString("username")+
+            "\n设备已激活并绑定，正在连接平台\n人员同步与正式刷脸核验待开通");
         Button logout=new Button(this);logout.setText("退出账号");styleButton(logout);root.addView(logout);
-        logout.setOnClickListener(v->{logout.setEnabled(false);network.execute(()->{platform.logout();main.post(()->{if(!destroyed)showLogin();});});});
+        logout.setOnClickListener(v->{communicating=false;main.removeCallbacks(heartbeatTick);logout.setEnabled(false);
+            network.execute(()->{platform.logout();main.post(()->{if(!destroyed)showLogin();});});});
+        main.removeCallbacks(heartbeatTick);main.post(heartbeatTick);
+    }
+    private void sendHeartbeat() {
+        if(destroyed || !communicating) return;
+        final int version=pageVersion;
+        final long generation=bindingGeneration;
+        network.execute(()->{
+            String text;
+            try {
+                JSONObject reply=platform.request("/api/terminal/heartbeat",new JSONObject()
+                    .put("fingerprint",fingerprint()).put("generation",generation)
+                    .put("appVersion","0.2.0-binding").put("sdkStatus",authorized?"AUTHORIZED":"UNAUTHORIZED"));
+                text="设备已绑定 · 平台通信正常\n算法授权："+(authorized?"已授权":"未授权")+
+                    "\n平台时间："+reply.optString("serverTime")+"\n人员同步与正式刷脸核验待开通";
+            } catch(Exception error) {
+                text="平台通信异常："+error.getMessage()+"\n将在30秒后重试；暂不可扫脸通行";
+            }
+            final String value=text;
+            main.post(()->{if(destroyed || !communicating || version!=pageVersion)return;
+                status.setText(value);main.postDelayed(heartbeatTick,30000);});
+        });
     }
     @Override protected void onDestroy() {
-        destroyed = true; pageVersion++; main.removeCallbacks(timeout); network.shutdownNow(); super.onDestroy();
+        destroyed = true; communicating=false; pageVersion++; main.removeCallbacks(heartbeatTick); main.removeCallbacks(timeout); network.shutdownNow(); super.onDestroy();
     }
 }

@@ -9,6 +9,7 @@ if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.
 }
 $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
 & java -version
+& (Join-Path $PSScriptRoot 'Test-Client.ps1')
 $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 if(-not (Test-Path (Join-Path $env:ANDROID_HOME 'platforms\android-29\android.jar'))) { throw 'Android platform 29 missing' }
 [IO.File]::WriteAllText((Join-Path $work 'local.properties'),'sdk.dir='+$env:ANDROID_HOME.Replace('\','/')+"`n",(New-Object Text.UTF8Encoding($false)))
@@ -39,7 +40,7 @@ if(-not (Test-Path -LiteralPath $signing)) {
 }
 Push-Location $work
 try {
- & .\gradlew.bat --no-daemon :app:assembleRelease :app:lintRelease
+ & .\gradlew.bat --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
  if($LASTEXITCODE -ne 0) { throw 'Demo build failed; do not install an older APK' }
  $apk = Join-Path $work 'app\build\outputs\apk\release\app-release.apk'
  if(-not (Test-Path $apk)) { throw 'APK not found' }
@@ -49,5 +50,5 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
  Get-FileHash -LiteralPath $apk -Algorithm SHA256
  Write-Host ('APK: '+$apk)
- Write-Host 'Activation and password-only login UI build. Backend login deployment and admission integration are pending.'
+ Write-Host 'Device login, binding and heartbeat build. Deploy matching platform version first. Face synchronization and admission remain pending.'
 } finally { Pop-Location }
