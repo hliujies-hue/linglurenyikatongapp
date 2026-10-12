@@ -49,5 +49,5 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
  Get-FileHash -LiteralPath $apk -Algorithm SHA256
  Write-Host ('APK: '+$apk)
- Write-Host 'Activation validation build only; platform login and admission are pending.'
+ Write-Host 'Activation and password-only login UI build. Backend login deployment and admission integration are pending.'
 } finally { Pop-Location }
