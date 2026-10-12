@@ -1,0 +1,91 @@
+def signing = new Properties()
+def signingFile = rootProject.file('../signing.properties')
+if(signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 29
+//    buildToolsVersion "33.0.1"
+    defaultConfig {
+        applicationId "com.lingluren.yikatong.terminal"
+        minSdkVersion 21
+        targetSdkVersion 31
+        versionCode 100
+        versionName "0.1.0-demo-dev"
+        multiDexEnabled true
+
+        ndk {
+            moduleName "facesdk"
+            ldLibs "log"
+            abiFilters "armeabi-v7a", "arm64-v8a" // "armeabi", "x86", "arm64-v8a"
+        }
+        multiDexEnabled false
+    }
+    packagingOptions {
+        pickFirst 'lib/arm64-v8a/libc++_shared.so'
+        pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+    }
+    signingConfigs {
+        release {
+            if(signingFile.exists()) {
+                storeFile file(signing['storeFile'])
+                storePassword signing['storePassword']
+                keyAlias signing['keyAlias']
+                keyPassword signing['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+
+            debuggable true
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+            debuggable false
+            jniDebuggable false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation project(path: ':registerlibrary')
+    implementation project(path: ':identifylibrary')
+    implementation project(path: ':face-sdk-library')
+    api fileTree(include: ['*.jar'], dir: 'libs')
+    //noinspection GradleCompatible
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    //noinspection GradleCompatible
+    implementation 'com.android.support:recyclerview-v7:28.0.0'
+    implementation 'com.google.code.gson:gson:2.6.2'
+    implementation 'androidx.recyclerview:recyclerview:1.1.0'
+//    implementation files('libs/picozensesdk-release.aar')
+//    implementation files('libs/SocketClient.jar')
+    api 'com.google.code.gson:gson:2.6.2'
+    implementation project(':datalibrary')
+    implementation project(':facelibrary')
+    implementation project(':faceaar')
+    implementation project(':gatelibrary')
+    implementation project(':AuthLibrary')
+    implementation project(':settinglibrary')
+    implementation project(':attrbutelibrary')
+
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+gradle.taskGraph.whenReady { graph ->
+ if(graph.allTasks.any { it.path.startsWith(':app:') && it.name.toLowerCase().contains('release') } && !signingFile.exists()) {
+  throw new GradleException('Release signing.properties missing; do not use Demo sample signing.')
+ }
+}
