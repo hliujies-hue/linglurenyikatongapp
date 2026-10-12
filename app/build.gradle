@@ -1,0 +1,49 @@
+plugins { id 'com.android.application' }
+def signingFile = rootProject.file('signing.properties')
+def keys = new Properties()
+if (signingFile.exists()) signingFile.withInputStream { keys.load(it) }
+android {
+ namespace 'com.lingluren.yikatong.terminal'
+ buildFeatures { buildConfig true }
+ compileSdk 35
+ defaultConfig {
+  applicationId 'com.lingluren.yikatong.terminal'
+  minSdk 26
+  targetSdk 35
+  buildConfigField 'boolean', 'ADMISSION_ENABLED', 'false'
+  versionCode 1
+  versionName '0.1.0-dev'
+  ndk { abiFilters 'arm64-v8a' }
+ }
+ signingConfigs {
+  release {
+   if (signingFile.exists()) {
+    storeFile file(keys['storeFile']); storePassword keys['storePassword']
+    keyAlias keys['keyAlias']; keyPassword keys['keyPassword']
+   }
+  }
+ }
+ buildTypes {
+  release { signingConfig signingConfigs.release; minifyEnabled false; debuggable false }
+ }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+ packaging { jniLibs { useLegacyPackaging = true } }
+}
+dependencies {
+ implementation project(':core')
+ implementation files('../vendor/face-sdk.aar')
+}
+tasks.register('verifyVendor') {
+ doLast {
+  if (!rootProject.file('vendor/face-sdk.aar').isFile()) throw new GradleException('Run scripts/Import-Sdk.ps1 first')
+  if (!file('src/main/assets/face-sdk-models').isDirectory()) throw new GradleException('SDK models missing')
+ }
+}
+preBuild.dependsOn verifyVendor
+gradle.taskGraph.whenReady { graph ->
+ if (graph.allTasks.any { it.path.startsWith(':app:') && it.name.toLowerCase().contains('release') } && !signingFile.exists()) {
+  throw new GradleException('Release signing missing. Run scripts/New-Signing.ps1; never use the Demo signing key.')
+ }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = "UTF-8" }

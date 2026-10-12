@@ -1,0 +1,13 @@
+.gradle/
+**/build/
+local.properties
+signing.properties
+*.jks
+*.keystore
+*.aar
+*.apk
+*.aab
+vendor/
+app/src/main/assets/face-sdk-models/
+.idea/
+*.log
