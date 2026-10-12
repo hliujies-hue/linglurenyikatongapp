@@ -22,7 +22,7 @@ try {
  [xml]$strings = Get-Content -LiteralPath $stringsPath -Raw
  $name = $strings.SelectSingleNode('/resources/string[@name="app_name"]')
  if($null -eq $name) { throw 'app_name resource missing' }
- $name.InnerText = [char]0x4E00 + [string][char]0x5361 + [char]0x901A + [char]0x666F + [char]0x533A + [char]0x5237 + [char]0x8138 + [char]0x6838 + [char]0x9A8C + [char]0x7AEF
+ $name.InnerText = -join @(0x4E00,0x5361,0x901A,0x666F,0x533A,0x5237,0x8138,0x6838,0x9A8C,0x7AEF | ForEach-Object { [char]$_ })
  $strings.Save($stringsPath)
  Move-Item -LiteralPath $work -Destination $destination
  Write-Host ('Demo working copy prepared: ' + $destination)
