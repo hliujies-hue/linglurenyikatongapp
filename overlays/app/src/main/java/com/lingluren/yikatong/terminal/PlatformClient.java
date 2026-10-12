@@ -11,8 +11,7 @@ public final class PlatformClient {
     private final String origin;
     private String token = "";
     public PlatformClient(String origin) {
-        TerminalEndpointPolicy.requireOrigin(origin);
-        this.origin = origin;
+        this.origin = TerminalEndpointPolicy.normalizeOrigin(origin);
     }
     public void token(String token) { this.token = token; }
     public JSONObject request(String path, JSONObject body) throws Exception {

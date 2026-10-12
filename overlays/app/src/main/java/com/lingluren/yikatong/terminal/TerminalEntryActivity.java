@@ -27,7 +27,7 @@ public final class TerminalEntryActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private final ExecutorService network = Executors.newSingleThreadExecutor();
-    private final PlatformClient platform = new PlatformClient("https://yktapi.qiliai.com");
+    private volatile PlatformClient platform;
     private int pageVersion;
     private long bindingGeneration;
     private boolean communicating;
@@ -53,6 +53,8 @@ public final class TerminalEntryActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         PreferencesUtil.initPrefs(getApplicationContext());
         auth = new BdFaceAuth();
+        try { platform=new PlatformClient(savedOrigin()); }
+        catch(IllegalArgumentException error) { showPlatformSettings();return; }
         showActivation();
         // Keep Demo cache keys so its model/recognition modules can reuse the same authorization.
         String saved = PreferencesUtil.getString("activate_online_key", "");
@@ -85,6 +87,36 @@ public final class TerminalEntryActivity extends Activity {
         button.setBackground(background(Color.rgb(22,96,76),0));button.setMinHeight(dp(52));
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(52));params.topMargin=dp(10);button.setLayoutParams(params);
     }
+    private String savedOrigin() {
+        return getSharedPreferences("terminal_connection",MODE_PRIVATE).getString("platformOrigin","https://yktapi.qiliai.com");
+    }
+    private void connectionButton(LinearLayout root) {
+        Button settings=new Button(this);settings.setText("平台连接设置");styleButton(settings);root.addView(settings);
+        settings.setOnClickListener(v->{if(busy.get()){status.setText("设备授权处理中，请完成后再修改平台地址");return;}showPlatformSettings();});
+    }
+    private void showPlatformSettings() {
+        communicating=false;main.removeCallbacks(heartbeatTick);
+        LinearLayout root=page("平台连接设置");
+        EditText address=new EditText(this);styleInput(address,"例如：https://您的接口域名");
+        address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setText(savedOrigin());root.addView(address);
+        Button save=new Button(this);save.setText("保存平台地址");styleButton(save);root.addView(save);
+        status.setText("填写平台 API 的 HTTPS 地址，修改后需要重新登录；设备授权保留。");
+        save.setOnClickListener(v->{
+            final String origin;
+            try { origin=TerminalEndpointPolicy.normalizeOrigin(address.getText().toString()); }
+            catch(IllegalArgumentException error) {status.setText(error.getMessage());return;}
+            final PlatformClient next=new PlatformClient(origin),previous=platform;
+            final int version=pageVersion;save.setEnabled(false);status.setText("正在保存并退出旧平台会话");
+            network.execute(()->{if(previous!=null)previous.logout();main.post(()->{
+                if(destroyed||version!=pageVersion)return;
+                if(!getSharedPreferences("terminal_connection",MODE_PRIVATE).edit().putString("platformOrigin",origin).commit()) {
+                    save.setEnabled(true);status.setText("平台地址保存失败，请重试");return;
+                }
+                platform=next;
+                if(authorized)showLogin();else{showActivation();String license=PreferencesUtil.getString("activate_online_key","");if(!license.isEmpty())verify(license);}
+            });});
+        });
+    }
     private void showActivation() {
         LinearLayout root = page("设备激活");
         EditText code = new EditText(this);
@@ -98,6 +130,7 @@ public final class TerminalEntryActivity extends Activity {
             verify(value);
         });
         status.setText("请向平台工作人员获取本机授权码");
+        connectionButton(root);
     }
     private void verify(String code) {
         if (!busy.compareAndSet(false,true)) return;
@@ -139,6 +172,7 @@ public final class TerminalEntryActivity extends Activity {
         visible.setOnCheckedChangeListener((button,checked)->{password.setTransformationMethod(checked?null:PasswordTransformationMethod.getInstance());password.setSelection(password.length());});
         Button login=new Button(this);login.setText("登录");styleButton(login);root.addView(login);
         status.setText("设备已激活，请登录景区账号");
+        connectionButton(root);
         login.setOnClickListener(view->{
             final String name=user.getText().toString().trim(),secret=password.getText().toString();
             if(name.isEmpty()||secret.isEmpty()){status.setText("请输入账号和密码");return;}
@@ -163,6 +197,7 @@ public final class TerminalEntryActivity extends Activity {
         Button logout=new Button(this);logout.setText("退出账号");styleButton(logout);root.addView(logout);
         logout.setOnClickListener(v->{communicating=false;main.removeCallbacks(heartbeatTick);logout.setEnabled(false);
             network.execute(()->{platform.logout();main.post(()->{if(!destroyed)showLogin();});});});
+        connectionButton(root);
         main.removeCallbacks(heartbeatTick);main.post(heartbeatTick);
     }
     private void sendHeartbeat() {
