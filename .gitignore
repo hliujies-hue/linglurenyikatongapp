@@ -1,3 +1,4 @@
+demo-local/
 .gradle/
 **/build/
 local.properties
@@ -6,8 +7,4 @@ signing.properties
 *.keystore
 *.aar
 *.apk
-*.aab
-vendor/
-app/src/main/assets/face-sdk-models/
-.idea/
 *.log
