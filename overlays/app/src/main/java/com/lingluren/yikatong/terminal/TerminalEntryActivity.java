@@ -53,7 +53,8 @@ public final class TerminalEntryActivity extends Activity {
         LinearLayout root = page("设备激活");
         EditText code = new EditText(this);
         code.setHint("请输入授权码"); code.setSingleLine();
-        code.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        code.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        code.setTextColor(Color.rgb(30,45,38));
         root.addView(code);
         activate = new Button(this); activate.setText("激活"); root.addView(activate);
         activate.setOnClickListener(v -> {
