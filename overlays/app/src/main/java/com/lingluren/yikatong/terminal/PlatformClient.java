@@ -11,7 +11,7 @@ public final class PlatformClient {
     private final String origin;
     private String token = "";
     public PlatformClient(String origin) {
-        if (!"https://ykt.qiliai.com".equals(origin)) throw new IllegalArgumentException("平台地址未配置");
+        if (!"https://yktapi.qiliai.com".equals(origin)) throw new IllegalArgumentException("平台地址未配置");
         this.origin = origin;
     }
     public void token(String token) { this.token = token; }
