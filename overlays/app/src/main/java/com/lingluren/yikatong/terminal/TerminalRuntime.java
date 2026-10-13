@@ -31,6 +31,7 @@ public final class TerminalRuntime {
     private volatile boolean ready,hasSession,scanning,authorized;
     private volatile long viewEpoch;
     private boolean modelFailed;
+    private String lastPhotoIssue="";
     private volatile String lastStatus="正在恢复设备状态";
     private JSONObject session,feedback=new JSONObject();
     private PlatformClient client;
@@ -94,6 +95,17 @@ public final class TerminalRuntime {
                 else if("DELETE".equals(op))engine.delete(store,user);
                 else if(!"DISCARD".equals(op))throw new IllegalStateException("未知人员同步任务");
                 ack.put("applied",true);
+            }catch(TerminalFaceEngine.PhotoRejectedException e){
+                // Remove any previous template before recording a rejected photo.
+                // A rejection is a completed failure receipt, never a successful face grant.
+                engine.delete(store,task.getLong("userId"));
+                String person=task.optString("personName","待核对人员");
+                lastPhotoIssue=person+"："+safe(e);
+                ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
+                JSONObject rejected=client.request("/api/terminal/recovery/sync/ack",ack);
+                if(!rejected.optBoolean("acknowledged")||!rejected.optBoolean("photoRejected"))throw new IllegalStateException("照片失败回执未确认，请先更新配套平台");
+                emit("照片待处理："+lastPhotoIssue+"\n该人员不能刷脸，继续同步其他人员；后台更换照片后重试");
+                continue;
             }catch(Exception e){ack.put("applied",false).put("error",safe(e));client.request("/api/terminal/recovery/sync/ack",ack);throw e;}
             if(!client.request("/api/terminal/recovery/sync/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("人员任务回执尚未确认");
         }
@@ -127,7 +139,7 @@ public final class TerminalRuntime {
             ready=result.optBoolean("productionReady");
             if(result.optJSONObject("feedback")!=null){feedback=result.getJSONObject("feedback");store.metadata("feedback",feedback.toString(),true);}
             store.cleanup(System.currentTimeMillis());
-            emit("设备："+session.optString("deviceName")+"\n账号："+session.optString("username")+"\n人员："+store.faces()+" · 待确认记录："+store.pendingCount(session.getString("sessionId"))+"\n"+(ready?"平台通信正常，可以开始核验":"正在同步，暂不可通行"));
+            emit("设备："+session.optString("deviceName")+"\n账号："+session.optString("username")+"\n人员："+store.faces()+" · 待确认记录："+store.pendingCount(session.getString("sessionId"))+"\n"+(ready?"平台通信正常，可以开始核验":"正在同步，暂不可通行")+(result.optLong("photoRejected")>0?"\n照片待处理："+result.optLong("photoRejected")+"人，不影响已同步人员；请后台更换照片后重试"+(lastPhotoIssue.isEmpty()?"":"\n最近问题："+lastPhotoIssue):""));
         }catch(Exception|LinkageError e){ready=false;emit(safe(e)+"\n记录保留，将自动重试；暂不可通行");}
     }
     public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{tick();}finally{retryQueued.set(false);}});}}

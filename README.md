@@ -1,6 +1,8 @@
 # 一卡通景区刷脸核验端
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.2-drain`（105）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
+
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.3-photo`（106）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 

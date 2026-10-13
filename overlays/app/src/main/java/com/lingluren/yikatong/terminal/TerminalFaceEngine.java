@@ -62,16 +62,25 @@ public final class TerminalFaceEngine {
         byte[] bytes=new byte[512];float size=feature.feature(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,image,face.landmarks,bytes);
         if(size!=512)throw new IllegalStateException("人脸特征提取失败，请检查照片质量");return bytes;
     }
+    public static final class PhotoRejectedException extends Exception {
+        PhotoRejectedException(String message){super(message);}
+    }
     public void upsert(TerminalStore store,long user,String hash,byte[] photo) throws Exception {
         require();BitmapFactory.Options dimensions=new BitmapFactory.Options();dimensions.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(photo,0,photo.length,dimensions);
-        if(dimensions.outWidth<80||dimensions.outHeight<80||(long)dimensions.outWidth*dimensions.outHeight>16000000)throw new IllegalStateException("人员照片尺寸无效");
+        if(dimensions.outWidth<80||dimensions.outHeight<80||(long)dimensions.outWidth*dimensions.outHeight>16000000)throw new PhotoRejectedException("照片尺寸无效，请重新上传清晰正面照");
         BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=1;
         while(Math.max(dimensions.outWidth,dimensions.outHeight)/options.inSampleSize>1600)options.inSampleSize*=2;
-        Bitmap bitmap=BitmapFactory.decodeByteArray(photo,0,photo.length,options);if(bitmap==null)throw new IllegalStateException("人员照片解码失败");
+        Bitmap bitmap=BitmapFactory.decodeByteArray(photo,0,photo.length,options);if(bitmap==null)throw new PhotoRejectedException("照片无法解码，请重新上传JPG或PNG照片");
         BDFaceImageInstance image=null;
         try {
             image=new BDFaceImageInstance(bitmap);FaceInfo[] faces=detect(image);
-            if(faces==null||faces.length!=1||!quality(faces[0]))throw new IllegalStateException("人员照片须有一张清晰完整的人脸");
+            if(faces==null||faces.length==0)throw new PhotoRejectedException("照片未检测到人脸，请更换清晰正面照");
+            if(faces.length!=1)throw new PhotoRejectedException("照片检测到多张人脸，请只保留本人");
+            FaceInfo face=faces[0];BaseConfig limits=SingleBaseConfig.getBaseConfig();
+            if(Math.abs(face.yaw)>limits.getGesture()||Math.abs(face.roll)>limits.getGesture()||Math.abs(face.pitch)>limits.getGesture())throw new PhotoRejectedException("人脸角度过大，请更换正面照");
+            if(face.bluriness>limits.getBlur())throw new PhotoRejectedException("人脸照片模糊，请重新拍摄");
+            if(face.illum<limits.getIllumination())throw new PhotoRejectedException("人脸光照不足，请更换明亮照片");
+            if(!quality(face))throw new PhotoRejectedException("人脸存在遮挡或质量检测未通过，请露出完整五官");
             byte[] template=feature(image,faces[0]);int id=store.saveFace(user,hash,template);check(search.pushPersonById(id,template),"人员特征入库");
         }finally{if(image!=null)image.destory();bitmap.recycle();}
     }
