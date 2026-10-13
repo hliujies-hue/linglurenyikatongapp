@@ -31,6 +31,9 @@ public final class TerminalRuntime {
     private volatile boolean ready,hasSession,scanning,authorized;
     private volatile long viewEpoch;
     private boolean modelFailed;
+    private volatile boolean settingsOpen,platformSynced;
+    private volatile long lastHeartbeat,pendingEvents;
+    private volatile String overview="平台信息：等待同步";
     private String lastPhotoIssue="";
     private volatile String lastStatus="正在恢复设备状态";
     private JSONObject session,feedback=new JSONObject();
@@ -47,10 +50,25 @@ public final class TerminalRuntime {
     public void sdkAuthorization(String state,String code){presence.sdk(state,"AUTHORIZED".equals(state)?"AUTHORIZED":"UNAUTHORIZED",code);}
     public String communicationStatus(){return presence.status();}
     public boolean hasSession(){return hasSession;}
-    public boolean ready(){return ready;}
+    public boolean ready(){return TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
+    public String overview(){return overview;}
+    public void beginSettings(Done done){
+        settingsOpen=true;ready=false;pauseCamera();
+        actor.execute(()->{try{
+            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("百度配置读取失败");
+            complete(done,null);
+        }catch(Exception e){settingsOpen=false;complete(done,safe(e));}});
+    }
+    public void endSettings(){
+        actor.execute(()->{try{
+            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("百度配置读取失败");
+            if(engine.ready())engine.applySettings();
+            settingsOpen=false;ready=false;emit("百度设置已读取，正在重新同步平台状态；请手动开始核验");tick();
+        }catch(Exception e){ready=false;settingsOpen=false;modelFailed=true;failure(e);}});
+    }
     public void authorize(){authorized=true;actor.execute(this::tick);}
     public void pauseCamera(){scanning=false;viewEpoch++;}
-    public boolean startCamera(){if(!ready)return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
+    public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
     private void connect() throws Exception {client=new PlatformClient(session.getString("origin"));client.token(session.optString("accessToken"));}
     public void login(String origin,String fingerprint,String username,String password,Done done){
         pauseCamera();actor.execute(()->{try {
@@ -63,7 +81,7 @@ public final class TerminalRuntime {
             try{binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION));}
             catch(Exception e){next.logout();throw e;}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
-            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
+            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;platformSynced=false;overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
         }catch(Exception e){complete(done,safe(e));}});
     }
     private void prepare() throws Exception {
@@ -121,8 +139,33 @@ public final class TerminalRuntime {
             acknowledge(e,result); // Recovery never displays PASS or repeats speech.
         }
     }
+    private void heartbeat(boolean allowReady) throws Exception {
+        pendingEvents=store.pendingCount(session.getString("sessionId"));
+        JSONObject request=TerminalProtocol.ref(session).put("appVersion",TerminalProtocol.VERSION)
+            .put("sdkStatus",engine.ready()?"READY":"MODEL_LOADING").put("localFaces",store.faces()).put("pendingEvents",pendingEvents);
+        JSONObject result=client.request("/api/terminal/heartbeat",request);
+        JSONObject profile=result.optJSONObject("profile"),messages=result.optJSONObject("feedback");
+        platformSynced=profile!=null&&profile.optLong("scenicId")>0&&!profile.optString("scenicName").isEmpty()
+            &&profile.optLong("deviceId")==session.optLong("deviceId")
+            &&profile.optString("accountName").equals(session.optString("username"))&&messages!=null;
+        if(!platformSynced){ready=false;overview="平台信息未完整同步，请更新配套平台后重试";throw new IllegalStateException(overview);}
+        feedback=messages;store.metadata("feedback",feedback.toString(),true);
+        lastHeartbeat=SystemClock.elapsedRealtime();
+        ready=allowReady&&result.optBoolean("productionReady")&&"ACTIVE".equals(session.optString("state"))&&pendingEvents==0;
+        String rule=profile.optString("ruleType");
+        rule="NORMAL".equals(rule)?"常规核验":"SINGLE_POINT".equals(rule)?"单景点核验":rule;
+        overview="景区："+profile.optString("scenicName")+"\n设备："+profile.optString("deviceName")
+            +"\n账号："+profile.optString("accountName")+" · 规则："+rule
+            +"\n平台配置：已同步 · 人员清单："+(result.optBoolean("rosterReady")?"已生成":"生成中")
+            +"\n本地人员："+store.faces()+" · 待同步："+result.optLong("pendingPeople")+" · 待回执："+result.optLong("pendingReceipts")
+            +"\n待确认入园记录："+pendingEvents+" · 照片待处理："+result.optLong("photoRejected")
+            +"\nSDK："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
+            +"\n平台同步时间："+result.optString("serverTime")
+            +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
+        emit(ready()?"信息与人员同步已完成，可以开始核验":"等待同步完成，暂不可开始核验");
+    }
     private void tick(){
-        if(session==null||!authorized)return;
+        if(session==null||!authorized||settingsOpen)return;
         try {
             // Events can still drain even if the local algorithm cannot initialize.
             upload();
@@ -130,16 +173,13 @@ public final class TerminalRuntime {
             if("DRAINING".equals(session.getString("state"))){
                 finishDrain();return;
             }
+            if(!platformSynced||!ready)heartbeat(false);
             prepare();presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
             syncPeople();
             if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
-            JSONObject heartbeat=TerminalProtocol.ref(session).put("appVersion",TerminalProtocol.VERSION).put("sdkStatus",engine.ready()?"READY":"ERROR").put("localFaces",store.faces()).put("pendingEvents",store.pendingCount(session.getString("sessionId")));
-            JSONObject result=client.request("/api/terminal/heartbeat",heartbeat);
-            ready=result.optBoolean("productionReady");
-            if(result.optJSONObject("feedback")!=null){feedback=result.getJSONObject("feedback");store.metadata("feedback",feedback.toString(),true);}
+            heartbeat(true);
             store.cleanup(System.currentTimeMillis());
-            emit("设备："+session.optString("deviceName")+"\n账号："+session.optString("username")+"\n人员："+store.faces()+" · 待确认记录："+store.pendingCount(session.getString("sessionId"))+"\n"+(ready?"平台通信正常，可以开始核验":"正在同步，暂不可通行")+(result.optLong("photoRejected")>0?"\n照片待处理："+result.optLong("photoRejected")+"人，不影响已同步人员；请后台更换照片后重试"+(lastPhotoIssue.isEmpty()?"":"\n最近问题："+lastPhotoIssue):""));
         }catch(Exception|LinkageError e){ready=false;emit(safe(e)+"\n记录保留，将自动重试；暂不可通行");}
     }
     public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{tick();}finally{retryQueued.set(false);}});}}
@@ -176,7 +216,7 @@ public final class TerminalRuntime {
         JSONObject current=store.active();
         JSONObject result=client.request("/api/terminal/recovery/release",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
         if(!result.optBoolean("released"))throw new IllegalStateException("原账号同步尚未完成");
-        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;scanning=false;emit("同步与回执已完成，可以登录其他账号");
+        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;platformSynced=false;overview="平台信息：未登录";scanning=false;emit("同步与回执已完成，可以登录其他账号");
     }
     public void frame(byte[] bytes,int width,int height,int rotation){
         if(!scanning||!authorized||!engine.ready()||!frameQueued.compareAndSet(false,true))return;
@@ -185,8 +225,8 @@ public final class TerminalRuntime {
             if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.getString("state")))return;
             TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);long now=SystemClock.elapsedRealtime();
             if(!match.present){gate.absent(now);return;}if(!gate.face(now))return;
-            boolean online=ready&&match.failure.isEmpty();
-            String failure=!ready?"NETWORK_UNAVAILABLE":match.failure.isEmpty()?"PLATFORM_TIMEOUT":match.failure;
+            boolean online=ready()&&match.failure.isEmpty();
+            String failure=!ready()?"NETWORK_UNAVAILABLE":match.failure.isEmpty()?"PLATFORM_TIMEOUT":match.failure;
             JSONObject event=store.event(match.user,failure),result=null;boolean saved=false;
             try{
                 result=client.request(online?"/api/terminal/verify":"/api/terminal/recovery/events",event);
@@ -208,5 +248,5 @@ public final class TerminalRuntime {
     private void failure(Throwable e){emit(safe(e));}
     private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":m;}
     private void complete(Done done,String error){main.post(()->done.done(error));}
-    private void emit(String text){lastStatus=text;boolean active=hasSession,can=ready;main.post(()->{Listener l=listener;if(l!=null)l.status(text,can,active);});}
+    private void emit(String text){lastStatus=text;boolean active=hasSession,can=ready();main.post(()->{Listener l=listener;if(l!=null)l.status(text,can,active);});}
 }

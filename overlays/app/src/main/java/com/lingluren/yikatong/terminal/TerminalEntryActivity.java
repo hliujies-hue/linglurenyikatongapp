@@ -3,8 +3,6 @@ package com.lingluren.yikatong.terminal;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.view.MotionEvent;
-import android.view.ViewConfiguration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -45,6 +43,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private boolean speechReady, accountPage;
     private Button startButton;
     private TextView resultView;
+    private TextureView cameraPreview;
     private int pageVersion;
     private String lastState="正在恢复设备状态";
     private String fingerprint() {
@@ -53,47 +52,26 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         return getPackageName()+":"+id;
     }
     private boolean destroyed;
-    private boolean settingsHeld, settingsOpened;
-    private float settingsDownX, settingsDownY;
-    private final Runnable openBaiduSettings = () -> {
-        if (!settingsHeld || destroyed || isFinishing()) return;
-        settingsOpened = true; settingsHeld = false;
-        try {
-            if(camera!=null)camera.stop();runtime.pauseCamera();
-            startActivity(new Intent().setClassName(this, "com.example.settinglibrary.SettingActivity"));
-        } catch (RuntimeException error) {
-            Toast.makeText(this, "高级算法配置无法打开，请联系平台人员", Toast.LENGTH_LONG).show();
-        }
-    };
-    private void cancelSettingsHold() {
-        settingsHeld = false; main.removeCallbacks(openBaiduSettings);
-    }
-    private void settingsTouch(Button button) {
-        button.setOnTouchListener((view, event) -> {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    cancelSettingsHold(); settingsOpened = false; settingsHeld = true;
-                    settingsDownX = event.getX(); settingsDownY = event.getY();
-                    view.setPressed(true); view.getParent().requestDisallowInterceptTouchEvent(true);
-                    main.postDelayed(openBaiduSettings, 10000L); return true;
-                case MotionEvent.ACTION_MOVE:
-                    int slop = ViewConfiguration.get(this).getScaledTouchSlop();
-                    if (Math.abs(event.getX()-settingsDownX)>slop || Math.abs(event.getY()-settingsDownY)>slop) {
-                        cancelSettingsHold(); view.setPressed(false);
-                    }
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    boolean click = settingsHeld && !settingsOpened;
-                    cancelSettingsHold(); view.setPressed(false);
-                    view.getParent().requestDisallowInterceptTouchEvent(false);
-                    if (click) view.performClick(); return true;
-                case MotionEvent.ACTION_CANCEL:
-                case MotionEvent.ACTION_POINTER_DOWN:
-                    cancelSettingsHold(); view.setPressed(false);
-                    view.getParent().requestDisallowInterceptTouchEvent(false); return true;
-                default: return true;
-            }
+    private boolean baiduSettingsOpen;
+    private TextView overviewView;
+    private void openBaiduSettings(){
+        if(busy.get()){Toast.makeText(this,"设备授权处理中，请稍候",Toast.LENGTH_SHORT).show();return;}
+        if(baiduSettingsOpen)return;
+        if(camera!=null)camera.stop();
+        baiduSettingsOpen=true;
+        status.setText("正在暂停核验并打开百度内置设置");
+        runtime.beginSettings(error->{
+            if(destroyed){runtime.endSettings();return;}
+            if(error!=null){baiduSettingsOpen=false;status.setText(error);return;}
+            try{
+                Toast.makeText(this,"核验端使用RGB活体；修改后返回将重新同步，核验需手动开始",Toast.LENGTH_LONG).show();
+                startActivityForResult(new Intent().setClassName(this,"com.example.settinglibrary.SettingActivity"),201);
+            }catch(RuntimeException e){baiduSettingsOpen=false;runtime.endSettings();status.setText("百度设置无法打开，请检查完整Demo安装包");}
         });
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==201){baiduSettingsOpen=false;runtime.endSettings();if(runtime.hasSession())showAccount();}
     }
     private TextView status,communication;
     private Button activate;
@@ -125,7 +103,6 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(border != 0) shape.setStroke(dp(1),border); return shape;
     }
     private LinearLayout page(String title) {
-        cancelSettingsHold();
         if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
         accountPage=false;
         pageVersion++;
@@ -136,12 +113,11 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         TextView brand=new TextView(this);brand.setText("一卡通景区刷脸核验端");brand.setTextSize(13);brand.setTextColor(Color.rgb(100,117,108));LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);
         top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         Button settings=new Button(this);settings.setText("设置");settings.setAllCaps(false);
-        settings.setTextColor(Color.rgb(22,96,76));settings.setContentDescription("设置，长按十秒打开高级算法配置");
+        settings.setTextColor(Color.rgb(22,96,76));settings.setContentDescription("打开百度内置设置");
         top.addView(settings,new LinearLayout.LayoutParams(dp(80),dp(48)));root.addView(top);
-        settings.setOnClickListener(v->{if(busy.get()){Toast.makeText(this,"设备授权处理中，请稍候",Toast.LENGTH_SHORT).show();return;}showPlatformSettings();});
-        settingsTouch(settings);
+        settings.setOnClickListener(v->openBaiduSettings());
         TextView heading=new TextView(this);heading.setText(title);heading.setTextSize(26);heading.setTextColor(Color.rgb(22,96,76));heading.setPadding(0,dp(14),0,dp(12));root.addView(heading);
-        communication=new TextView(this);communication.setText(runtime.communicationStatus());communication.setTextSize(14);communication.setPadding(0,0,0,dp(12));root.addView(communication);
+        communication=new TextView(this);communication.setText(runtime.communicationStatus());communication.setTextSize(14);communication.setTextColor(Color.rgb(70,90,79));communication.setPadding(0,0,0,dp(12));root.addView(communication);
         status=new TextView(this);status.setTextSize(14);status.setTextColor(Color.rgb(70,90,79));status.setPadding(0,0,0,dp(16));root.addView(status);
         return root;
     }
@@ -258,12 +234,14 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void showAccount() {
         LinearLayout root=page("设备状态");accountPage=true;status.setText(lastState);
-        TextureView preview=new TextureView(this);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(180)));
-        resultView=new TextView(this);resultView.setText("请先开始核验");resultView.setTextSize(23);resultView.setPadding(0,dp(16),0,dp(16));root.addView(resultView);
+        overviewView=new TextView(this);overviewView.setText(runtime.overview());overviewView.setTextSize(15);overviewView.setTextColor(Color.rgb(50,65,55));overviewView.setPadding(dp(12),dp(12),dp(12),dp(12));overviewView.setBackground(background(Color.WHITE,Color.rgb(209,219,211)));root.addView(overviewView);
+        TextureView preview=new TextureView(this);preview.setVisibility(android.view.View.GONE);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(180)));
+        cameraPreview=preview;
+        resultView=new TextView(this);resultView.setText(runtime.ready()?"同步完成，请开始核验":"等待平台信息与人员同步");resultView.setTextSize(23);resultView.setPadding(0,dp(16),0,dp(16));root.addView(resultView);
         camera=new TerminalCamera(this,runtime,preview,text->{status.setText(text);startButton.setText("开始核验");});
-        startButton=new Button(this);startButton.setText("开始核验");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
+        startButton=new Button(this);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
         startButton.setOnClickListener(v->{
-            if("暂停核验".contentEquals(startButton.getText())){camera.stop();startButton.setText("开始核验");resultView.setText("已暂停核验");return;}
+            if("暂停核验".contentEquals(startButton.getText())){camera.stop();cameraPreview.setVisibility(android.view.View.GONE);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");resultView.setText("已暂停核验");return;}
             if(Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},200);return;}
             startScanning();
         });
@@ -276,7 +254,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         });
         connectionButton(root);runtime.retry();
     }
-    private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");return;}if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
+    private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");return;}cameraPreview.setVisibility(android.view.View.VISIBLE);if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){super.onRequestPermissionsResult(request,permissions,grants);if(request==200&&accountPage){if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startScanning();else status.setText("未授予相机权限，请在手机设置中允许后重试");}}
     private void showStatistics(){
         LinearLayout root=page("景区入园统计");int version=pageVersion;
@@ -289,7 +267,13 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         Button back=new Button(this);back.setText("返回设备状态");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());query.performClick();
     }
     @Override public void status(String text,boolean ready,boolean hasSession){
-        if(destroyed)return;lastState=text;if(!accountPage)return;status.setText(text);if(startButton!=null)startButton.setEnabled(ready||"暂停核验".contentEquals(startButton.getText()));if(!hasSession&&authorized)showLogin();
+        if(destroyed)return;lastState=text;if(!accountPage)return;status.setText(text);if(overviewView!=null)overviewView.setText(runtime.overview());
+        if(startButton!=null){
+            boolean scanning="暂停核验".contentEquals(startButton.getText());
+            if(!ready&&scanning){if(camera!=null)camera.stop();if(cameraPreview!=null)cameraPreview.setVisibility(android.view.View.GONE);scanning=false;}
+            if(!scanning){startButton.setText(ready?"开始核验":"等待同步完成");if(resultView!=null)resultView.setText(ready?"同步完成，请开始核验":"等待平台信息与人员同步");}
+            startButton.setEnabled(ready);
+        }if(!hasSession&&authorized)showLogin();
     }
     @Override public void communication(String text){if(!destroyed&&communication!=null)communication.setText(text);}
     @Override public void result(String text,String voice,boolean open){
@@ -297,10 +281,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(speechReady&&!voice.isEmpty())speech.speak(voice,TextToSpeech.QUEUE_FLUSH,null,"terminal-result");
     }
     @Override protected void onPause() {
-        cancelSettingsHold();if(camera!=null)camera.stop();runtime.pauseCamera();if(startButton!=null)startButton.setText("开始核验");super.onPause();
+        if(camera!=null)camera.stop();runtime.pauseCamera();if(startButton!=null)startButton.setText("开始核验");super.onPause();
     }
     @Override protected void onDestroy() {
-        cancelSettingsHold();
         destroyed=true;pageVersion++;main.removeCallbacks(timeout);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
     }
 }

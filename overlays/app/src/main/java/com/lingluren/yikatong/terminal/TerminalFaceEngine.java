@@ -32,9 +32,7 @@ public final class TerminalFaceEngine {
     public void init(Context context,TerminalStore store) throws Exception {
         if(ready)return;
         detect=new FaceDetect();live=new FaceLive();feature=new FaceFeature();search=new FaceSearch();
-        BaseConfig c=SingleBaseConfig.getBaseConfig();
-        BDFaceSDKConfig config=new BDFaceSDKConfig();config.maxDetectNum=2;config.minFaceSize=c.getMinimumFace();config.notRGBFaceThreshold=c.getFaceThreshold();
-        config.isCheckBlur=true;config.isOcclusion=true;config.isIllumination=true;config.isHeadPose=true;detect.loadConfig(config);
+        applySettings();
         await(cb->detect.initModel(context,GlobalSet.DETECT_VIS_MODEL,GlobalSet.ALIGN_RGB_MODEL,BDFaceSDKCommon.DetectType.DETECT_VIS,BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_ACCURATE,cb),"人脸检测模型加载");
         await(cb->detect.initQuality(context,GlobalSet.BLUR_MODEL,GlobalSet.OCCLUSION_MODEL,cb),"质量检测模型加载");
         await(cb->live.initModel(context,GlobalSet.LIVE_VIS_MODEL,"","","",GlobalSet.LIVE_NIR_MODEL,GlobalSet.LIVE_DEPTH_MODEL,cb),"活体模型加载");
@@ -43,6 +41,11 @@ public final class TerminalFaceEngine {
         check(search.featureClear(),"检索库清空");
         try(Cursor rows=store.allFaces()){while(rows.moveToNext())check(search.pushPersonById(rows.getInt(0),rows.getBlob(1)),"检索库恢复");}
         ready=true;
+    }
+    public void applySettings(){
+        BaseConfig c=SingleBaseConfig.getBaseConfig();
+        BDFaceSDKConfig config=new BDFaceSDKConfig();config.maxDetectNum=2;config.minFaceSize=c.getMinimumFace();config.notRGBFaceThreshold=c.getFaceThreshold();
+        config.isCheckBlur=true;config.isOcclusion=true;config.isIllumination=true;config.isHeadPose=true;detect.loadConfig(config);
     }
     private void check(int code,String operation){if(code!=0){ready=false;throw new IllegalStateException(operation+"失败（"+code+"），禁止确认人员任务");}}
     private static boolean finite(float n){return !Float.isNaN(n)&&!Float.isInfinite(n);}
@@ -59,8 +62,8 @@ public final class TerminalFaceEngine {
         return o!=null && o.leftEye<=c.getLeftEye()&&o.rightEye<=c.getRightEye()&&o.nose<=c.getNose()&&o.mouth<=c.getMouth()&&o.leftCheek<=c.getLeftCheek()&&o.rightCheek<=c.getRightCheek()&&o.chin<=c.getChinContour();
     }
     private byte[] feature(BDFaceImageInstance image,FaceInfo face){
-        byte[] bytes=new byte[512];float size=feature.feature(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,image,face.landmarks,bytes);
-        if(size!=512)throw new IllegalStateException("人脸特征提取失败，请检查照片质量");return bytes;
+        byte[] bytes=new byte[TerminalSdkContract.FEATURE_BYTES];float size=feature.feature(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,image,face.landmarks,bytes);
+        if(!TerminalSdkContract.featureSucceeded(size))throw new IllegalStateException("SDK特征提取失败（返回值："+size+"），请检查算法状态");return bytes;
     }
     public static final class PhotoRejectedException extends Exception {
         PhotoRejectedException(String message){super(message);}

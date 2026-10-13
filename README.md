@@ -2,7 +2,7 @@
 
 需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.3-photo`（106）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.4-basics`（107）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 
@@ -26,3 +26,11 @@ if ($LASTEXITCODE -ne 0) { throw '真机检查失败' }
 2026-10-13 通信修复：APP启动或保存HTTPS地址后独立上报设备通信，每15秒续报，无需先登录或完成SDK激活；原会话补传规则不变。后台展示登记授权码、APP上报授权码、SDK版本与授权结果。APP每页展示通信状态；只有收到平台响应才显示在线。手机进程停止/网络断开后，后台90秒超时显示离线。通信凭据持久保存，不随退出账号清空。
 
 日常安装使用 `Test-Device.ps1 -Install`。`-VerifyJournal` 是可选的测试APK检查；手机需要允许该测试APK安装。用户提供的上轮日志显示正式APK已安装成功，测试APK被手机以 `INSTALL_FAILED_USER_RESTRICTED` 拒绝，不能据此认定业务测试通过。即使可选测试失败，脚本也先启动正式APP，再返回测试失败。
+
+## 0.3.4 基础流程与百度设置
+
+先更新配套平台，再覆盖安装。首页显示景区、设备、账号、规则、平台配置、人员/回执进度及最近同步时间。未取得完整平台信息、未完成同步或心跳过期时禁止开始核验。顶部“设置”直接打开百度原生 SettingActivity；平台地址仍由“平台连接设置”修改。
+
+进入百度设置会暂停相机与SDK同步；返回后重新读取配置，检测最小人脸、检测阈值、质量阈值、RGB活体阈值、识别阈值可供当前核验链路使用，重新开相机时读取摄像头ID。当前手机采用RGB活体、系统相机方向；Demo中的红外/深度、镜像角度、图像优化、Demo日志等界面仍属原生能力，尚未全部接入本核验链路，不能把可打开等同于已生效。关闭Demo活体或质量开关不会取消本核验端的强制检查。返回后须手动开始核验。
+
+修复SDK返回单位：512字节特征缓冲区对应128个float；旧代码误把成功返回128当成失败。本版保留真正的SDK异常返回值，不将其伪装成照片质量失败。
