@@ -34,6 +34,12 @@ public final class TerminalStore extends SQLiteOpenHelper {
             return new JSONObject(c.getString(0)).put("state",c.getString(1)).put("lastSequence",c.getLong(2)).put("resetDone",c.getInt(3)==1);
         }
     }
+    public JSONObject presenceProof(String origin) throws Exception {
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT snapshot FROM sessions ORDER BY rowid DESC",null)) {
+            while(c.moveToNext()){JSONObject value=new JSONObject(c.getString(0));if(origin.equals(value.optString("origin")))return value;}
+            return null;
+        }
+    }
     public void bind(JSONObject session) throws Exception {
         TerminalProtocol.validateSession(session);
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();

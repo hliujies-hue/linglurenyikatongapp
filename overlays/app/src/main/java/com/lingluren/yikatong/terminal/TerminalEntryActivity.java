@@ -95,7 +95,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             }
         });
     }
-    private TextView status;
+    private TextView status,communication;
     private Button activate;
     private BdFaceAuth auth;
     private volatile boolean authorized;
@@ -112,8 +112,8 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         speech=new TextToSpeech(this,code->{if(code==TextToSpeech.SUCCESS){int result=speech.setLanguage(Locale.SIMPLIFIED_CHINESE);speechReady=result>=0;}});
         PreferencesUtil.initPrefs(getApplicationContext());
         auth = new BdFaceAuth();
-        try { TerminalEndpointPolicy.normalizeOrigin(savedOrigin()); }
-        catch(IllegalArgumentException error) { showPlatformSettings();return; }
+        try { runtime.configureConnection(savedOrigin(),fingerprint()); }
+        catch(IllegalArgumentException|IllegalStateException error) { showPlatformSettings();status.setText(error.getMessage());return; }
         showActivation();
         // Keep Demo cache keys so its model/recognition modules can reuse the same authorization.
         String saved = PreferencesUtil.getString("activate_online_key", "");
@@ -141,6 +141,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         settings.setOnClickListener(v->{if(busy.get()){Toast.makeText(this,"设备授权处理中，请稍候",Toast.LENGTH_SHORT).show();return;}showPlatformSettings();});
         settingsTouch(settings);
         TextView heading=new TextView(this);heading.setText(title);heading.setTextSize(26);heading.setTextColor(Color.rgb(22,96,76));heading.setPadding(0,dp(14),0,dp(12));root.addView(heading);
+        communication=new TextView(this);communication.setText(runtime.communicationStatus());communication.setTextSize(14);communication.setPadding(0,0,0,dp(12));root.addView(communication);
         status=new TextView(this);status.setTextSize(14);status.setTextColor(Color.rgb(70,90,79));status.setPadding(0,0,0,dp(16));root.addView(status);
         return root;
     }
@@ -174,6 +175,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             try {
                 String origin=TerminalEndpointPolicy.normalizeOrigin(address.getText().toString());
                 if(!getSharedPreferences("terminal_connection",MODE_PRIVATE).edit().putString("platformOrigin",origin).commit())throw new IllegalStateException("平台地址保存失败，请重试");
+                runtime.configureConnection(origin,fingerprint());
                 if(authorized)showLogin();else showActivation();
             }catch(IllegalArgumentException|IllegalStateException error){status.setText(error.getMessage());}
         });
@@ -196,6 +198,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void verify(String code) {
         if (!busy.compareAndSet(false,true)) return;
+        runtime.sdkAuthorization("CHECKING",code);
         activate.setEnabled(false); status.setText("正在验证设备授权，请稍候");
         main.postDelayed(timeout,30000);
         try {
@@ -204,15 +207,15 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
                 main.removeCallbacks(timeout); busy.set(false);
                 if (error == 0) {
                     PreferencesUtil.putString("activate_online_key",code);
-                    authorized = true;runtime.authorize();
+                    authorized = true;runtime.sdkAuthorization("AUTHORIZED",code);runtime.authorize();
                     if(runtime.hasSession())showAccount();else showLogin();
                 } else {
-                    activate.setEnabled(true); status.setText(explain(error));
+                    runtime.sdkAuthorization("ERROR",code);activate.setEnabled(true); status.setText(explain(error));
                 }
             }));
         } catch (RuntimeException | LinkageError failure) {
             main.removeCallbacks(timeout); busy.set(false); activate.setEnabled(true);
-            status.setText("授权组件异常，请联系平台人员");
+            runtime.sdkAuthorization("ERROR",code);status.setText("授权组件异常，请联系平台人员");
         }
     }
     private String explain(int code) {
@@ -285,6 +288,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     @Override public void status(String text,boolean ready,boolean hasSession){
         if(destroyed)return;lastState=text;if(!accountPage)return;status.setText(text);if(startButton!=null)startButton.setEnabled(ready||"暂停核验".contentEquals(startButton.getText()));if(!hasSession&&authorized)showLogin();
     }
+    @Override public void communication(String text){if(!destroyed&&communication!=null)communication.setText(text);}
     @Override public void result(String text,String voice,boolean open){
         if(destroyed||!accountPage||resultView==null)return;resultView.setText(text);resultView.setTextColor(open?Color.rgb(22,120,60):Color.rgb(180,45,30));
         if(speechReady&&!voice.isEmpty())speech.speak(voice,TextToSpeech.QUEUE_FLUSH,null,"terminal-result");

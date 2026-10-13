@@ -14,13 +14,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** One serial owner of camera decisions, native SDK, journal, synchronization and exit barrier. */
 public final class TerminalRuntime {
-    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open); }
+    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open); void communication(String text); }
     public interface Done { void done(String error); }
     public interface Stats { void done(JSONObject data,String error); }
     private static TerminalRuntime instance;
     public static synchronized TerminalRuntime get(Context context){if(instance==null)instance=new TerminalRuntime(context.getApplicationContext());return instance;}
     private final Context context;
     private final TerminalStore store;
+    private final TerminalPresence presence;
     private final TerminalFaceEngine engine=new TerminalFaceEngine();
     private final TerminalAttemptGate gate=new TerminalAttemptGate();
     private final ScheduledExecutorService actor=Executors.newSingleThreadScheduledExecutor();
@@ -35,11 +36,15 @@ public final class TerminalRuntime {
     private PlatformClient client;
     private TerminalRuntime(Context context){
         this.context=context;store=new TerminalStore(context);
+        presence=new TerminalPresence(context,store,text->{Listener view=listener;if(view!=null)view.communication(text);});
         actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请激活设备后登录景区子账号");}catch(Exception e){failure(e);}});
         actor.scheduleWithFixedDelay(this::tick,2,3,TimeUnit.SECONDS);
     }
-    public void attach(Listener value){listener=value;emit(lastStatus);}
+    public void attach(Listener value){listener=value;emit(lastStatus);value.communication(presence.status());}
     public void detach(Listener value){if(listener==value)listener=null;pauseCamera();}
+    public void configureConnection(String origin,String fingerprint){presence.configure(origin,fingerprint);}
+    public void sdkAuthorization(String state,String code){presence.sdk(state,"AUTHORIZED".equals(state)?"AUTHORIZED":"UNAUTHORIZED",code);}
+    public String communicationStatus(){return presence.status();}
     public boolean hasSession(){return hasSession;}
     public boolean ready(){return ready;}
     public void authorize(){authorized=true;actor.execute(this::tick);}
@@ -64,8 +69,8 @@ public final class TerminalRuntime {
         if(!authorized)throw new IllegalStateException("等待设备激活");
         if(modelFailed)throw new IllegalStateException("算法加载失败，请重启应用后重试；原账号记录已保留");
         if(!engine.ready()){
-            emit("正在加载算法和本地人员库，请稍候");
-            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store);}catch(Exception|LinkageError e){modelFailed=true;throw new IllegalStateException("算法加载失败："+safe(e));}
+            emit("正在加载算法和本地人员库，请稍候");presence.sdk("AUTHORIZED","MODEL_LOADING",null);
+            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store);presence.sdk("AUTHORIZED","READY",null);}catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
         }
         if(!session.optBoolean("resetDone")){
             engine.reset(store);
@@ -110,7 +115,7 @@ public final class TerminalRuntime {
             if("DRAINING".equals(session.getString("state"))){
                 try{tryRelease();return;}catch(PlatformClient.ApiException e){if(e.status!=400)throw e;}
             }
-            prepare();
+            prepare();presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
             syncPeople();
             if("DRAINING".equals(session.getString("state"))){tryRelease();return;}

@@ -1,6 +1,6 @@
 # 真机验收
 
-先更新配套平台，再拉取 APP、执行 Build-Demo.ps1，最后 Test-Device.ps1 -Install -VerifyJournal。多台设备指定 -Serial。两项脚本失败均停止，不能以旧 APK 冒充新版本。
+先更新配套平台，再拉取 APP、执行 Build-Demo.ps1，最后 Test-Device.ps1 -Install。多台设备指定 -Serial。两项脚本失败均停止，不能以旧 APK 冒充新版本。
 
 1. 已授权设备更新后保持授权；未授权设备先在线激活。使用景区主账号下的普通子账号登录，不选择景区或设备，后台自动出现该手机。
 2. 设备同步真实照片，只有 SDK 特征入库成功才确认人员任务；同步完成后允许开始核验。测试新增、换照片、拉黑、到期和退款后的撤权。
@@ -12,3 +12,7 @@
 8. 真实用户规模、模型初始化、照片质量、各机型摄像头方向、连续运行温升和 30 万模板性能由现场记录结果；仪器测试通过不能替代真人和容量验收。
 
 仪器测试只使用 terminal-test-* 独立数据库，不接触 terminal-v2.db。测试报告：demo-work/app/build/reports/androidTests/connected/。完整签名 APK：demo-work/app/build/outputs/apk/release/app-release.apk。
+
+2026-10-13 通信修复：APP启动或保存HTTPS地址后独立上报设备通信，每15秒续报，无需先登录或完成SDK激活；原会话补传规则不变。后台展示登记授权码、APP上报授权码、SDK版本与授权结果。APP每页展示通信状态；只有收到平台响应才显示在线。手机进程停止/网络断开后，后台90秒超时显示离线。通信凭据持久保存，不随退出账号清空。
+
+日常安装使用 `Test-Device.ps1 -Install`。`-VerifyJournal` 是可选的测试APK检查；手机需要允许该测试APK安装。用户提供的上轮日志显示正式APK已安装成功，测试APK被手机以 `INSTALL_FAILED_USER_RESTRICTED` 拒绝，不能据此认定业务测试通过。即使可选测试失败，脚本也先启动正式APP，再返回测试失败。

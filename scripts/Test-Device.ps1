@@ -19,7 +19,9 @@ if($Install) {
  & $adb -s $Serial install -r $apk
  if($LASTEXITCODE -ne 0) { throw 'APK installation failed; existing app and data retained' }
 }
+$journalFailure=$null
 if($VerifyJournal) {
+ try {
  if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.exe'))) {
   $candidate=Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
   if(-not (Test-Path (Join-Path $candidate 'bin\javac.exe'))) { throw 'Set JAVA_HOME to JDK 17 before device journal tests' }
@@ -34,6 +36,8 @@ if($VerifyJournal) {
   if($LASTEXITCODE -ne 0) { throw 'Device journal tests failed' }
  } finally { Pop-Location; $env:ANDROID_SERIAL=$previousSerial }
 }
+ catch { $journalFailure=$_; Write-Warning 'Optional journal test failed or test APK installation was blocked. Launching the installed app; the test is NOT marked passed.' }
+}
 $package = 'com.lingluren.yikatong.terminal'
 & $adb -s $Serial shell am force-stop $package
 & $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity"
@@ -43,5 +47,6 @@ $processId = (& $adb -s $Serial shell pidof $package | Out-String).Trim()
 if(-not $processId) { throw 'Terminal process exited; inspect Android Studio Logcat' }
 Write-Host "PASS: installed terminal launched and process remains alive (PID $processId)."
 
+if($journalFailure) { throw $journalFailure }
 Write-Host 'On phone: activate, login with a scenic child account, wait for sync, then check real face/liveness, rejection, network recovery and sync-before-switch. Launch/journal tests do not certify face matching.'
 
