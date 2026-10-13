@@ -22,7 +22,7 @@ final class TerminalPresence {
     private volatile String status="平台通信：等待配置";
     TerminalPresence(Context context,TerminalStore store,Listener listener){
         prefs=context.getSharedPreferences("terminal_presence",Context.MODE_PRIVATE);this.store=store;this.listener=listener;
-        worker.scheduleWithFixedDelay(this::tick,1,15,TimeUnit.SECONDS);
+        worker.scheduleWithFixedDelay(this::tick,5+new java.util.Random().nextInt(20),30,TimeUnit.SECONDS);
     }
     String status(){return status;}
     void configure(String origin,String fingerprint){

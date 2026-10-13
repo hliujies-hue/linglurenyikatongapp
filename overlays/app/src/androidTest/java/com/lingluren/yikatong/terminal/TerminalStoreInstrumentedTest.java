@@ -27,4 +27,11 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
   String id=repeat("a",48);store.bind(session(id));JSONObject a=store.event(1,"NO_MATCH"),b=store.event(2,"NO_MATCH");store.receipt(a,receipt(a));store.confirmed(a);
   store.cleanup(System.currentTimeMillis()+8L*86400000);assertEquals(1,store.pendingCount(id));assertEquals(b.getString("eventId"),store.pending(id).get(0).getString("eventId"));assertEquals(3,store.event(3,"NO_MATCH").getLong("sequence"));
  }
+ public void testFeatureReuseRequiresSamePersonAndHashAfterRestart() throws Exception {
+  byte[] feature=new byte[512];feature[0]=42;store.saveFace(7,"hash-one",feature);
+  store.close();store=new TerminalStore(context,name);
+  assertEquals(42,store.faceFeature(7,"hash-one")[0]);
+  assertNull(store.faceFeature(7,"hash-two"));assertNull(store.faceFeature(8,"hash-one"));
+  store.deleteFace(7);assertNull(store.faceFeature(7,"hash-one"));
+ }
 }

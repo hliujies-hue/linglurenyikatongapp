@@ -106,5 +106,10 @@ public final class TerminalStore extends SQLiteOpenHelper {
         int id=faceId(user);if(id==0){long next=getWritableDatabase().insertOrThrow("faces",null,v);if(next>Integer.MAX_VALUE)throw new IllegalStateException("本地人脸编号达到上限");return (int)next;}
         getWritableDatabase().update("faces",v,"local_id=?",new String[]{Integer.toString(id)});return id;
     }
+    public byte[] faceFeature(long user,String hash){
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT feature FROM faces WHERE user_id=? AND target_hash=?",new String[]{Long.toString(user),hash})){
+            return c.moveToFirst()?c.getBlob(0):null;
+        }
+    }
     public void deleteFace(long user){getWritableDatabase().delete("faces","user_id=?",new String[]{Long.toString(user)});}
 }

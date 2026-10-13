@@ -31,6 +31,10 @@ public final class TerminalRuntime {
     private volatile boolean ready,hasSession,scanning,authorized;
     private volatile long viewEpoch;
     private boolean modelFailed;
+    private boolean pendingPeople=true;
+    private long nextTick;
+    private int syncFailures;
+    private final java.util.Random jitter=new java.util.Random();
     private volatile boolean settingsOpen,platformSynced;
     private volatile long lastHeartbeat,pendingEvents;
     private volatile String overview="平台信息：等待同步";
@@ -42,7 +46,7 @@ public final class TerminalRuntime {
         this.context=context;store=new TerminalStore(context);
         presence=new TerminalPresence(context,store,text->{Listener view=listener;if(view!=null)view.communication(text);});
         actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请激活设备后登录景区子账号");}catch(Exception e){failure(e);}});
-        actor.scheduleWithFixedDelay(this::tick,2,3,TimeUnit.SECONDS);
+        actor.scheduleWithFixedDelay(this::tick,1+jitter.nextInt(5),1,TimeUnit.SECONDS);
     }
     public void attach(Listener value){listener=value;emit(lastStatus);value.communication(presence.status());}
     public void detach(Listener value){if(listener==value)listener=null;pauseCamera();}
@@ -63,10 +67,10 @@ public final class TerminalRuntime {
         actor.execute(()->{try{
             if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("百度配置读取失败");
             if(engine.ready())engine.applySettings();
-            settingsOpen=false;ready=false;emit("百度设置已读取，正在重新同步平台状态；请手动开始核验");tick();
+            settingsOpen=false;ready=false;nextTick=0;emit("百度设置已读取，正在重新同步平台状态；请手动开始核验");tick();
         }catch(Exception e){ready=false;settingsOpen=false;modelFailed=true;failure(e);}});
     }
-    public void authorize(){authorized=true;actor.execute(this::tick);}
+    public void authorize(){authorized=true;actor.execute(()->{nextTick=0;tick();});}
     public void pauseCamera(){scanning=false;viewEpoch++;}
     public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
     private void connect() throws Exception {client=new PlatformClient(session.getString("origin"));client.token(session.optString("accessToken"));}
@@ -81,7 +85,7 @@ public final class TerminalRuntime {
             try{binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION));}
             catch(Exception e){next.logout();throw e;}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
-            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;platformSynced=false;overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
+            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
         }catch(Exception e){complete(done,safe(e));}});
     }
     private void prepare() throws Exception {
@@ -109,7 +113,10 @@ public final class TerminalRuntime {
             ack.put("taskId",task.getLong("taskId")).put("receipt",task.getString("receipt")).put("targetHash",task.getString("targetHash")).put("grantGeneration",task.getLong("grantGeneration"));
             try {
                 String op=task.getString("operation");long user=task.getLong("userId");
-                if("UPSERT".equals(op))engine.upsert(store,user,task.getString("targetHash"),client.photo(task.getString("photoUrl")));
+                if("UPSERT".equals(op)){
+                    String hash=task.getString("targetHash");
+                    if(!engine.reuse(store,user,hash))engine.upsert(store,user,hash,client.photo(task.getString("photoUrl")));
+                }
                 else if("DELETE".equals(op))engine.delete(store,user);
                 else if(!"DISCARD".equals(op))throw new IllegalStateException("未知人员同步任务");
                 ack.put("applied",true);
@@ -130,7 +137,7 @@ public final class TerminalRuntime {
     }
     private void acknowledge(JSONObject e,JSONObject response) throws Exception {
         JSONObject ack=TerminalProtocol.ref(e).put("eventId",e.getString("eventId")).put("sequence",e.getLong("sequence")).put("receipt",response.getString("receipt"));
-        if(!client.request("/api/terminal/recovery/events/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("核验回执尚未确认");store.confirmed(e);
+        if(!client.request("/api/terminal/recovery/events/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("核验回执尚未确认");store.confirmed(e);pendingEvents=store.pendingCount(session.getString("sessionId"));
     }
     private void upload() throws Exception {
         for(JSONObject e:store.pending(session.getString("sessionId"))){
@@ -151,6 +158,7 @@ public final class TerminalRuntime {
         if(!platformSynced){ready=false;overview="平台信息未完整同步，请更新配套平台后重试";throw new IllegalStateException(overview);}
         feedback=messages;store.metadata("feedback",feedback.toString(),true);
         lastHeartbeat=SystemClock.elapsedRealtime();
+        pendingPeople=result.optLong("pendingSync")>0;
         ready=allowReady&&result.optBoolean("productionReady")&&"ACTIVE".equals(session.optString("state"))&&pendingEvents==0;
         String rule=profile.optString("ruleType");
         rule="NORMAL".equals(rule)?"常规核验":"SINGLE_POINT".equals(rule)?"单景点核验":rule;
@@ -165,7 +173,8 @@ public final class TerminalRuntime {
         emit(ready()?"信息与人员同步已完成，可以开始核验":"等待同步完成，暂不可开始核验");
     }
     private void tick(){
-        if(session==null||!authorized||settingsOpen)return;
+        if(session==null||!authorized||settingsOpen||SystemClock.elapsedRealtime()<nextTick)return;
+        boolean failed=false;
         try {
             // Events can still drain even if the local algorithm cannot initialize.
             upload();
@@ -176,19 +185,24 @@ public final class TerminalRuntime {
             if(!platformSynced||!ready)heartbeat(false);
             prepare();presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
-            syncPeople();
+            if(pendingPeople)syncPeople();
             if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
             heartbeat(true);
             store.cleanup(System.currentTimeMillis());
-        }catch(Exception|LinkageError e){ready=false;emit(safe(e)+"\n记录保留，将自动重试；暂不可通行");}
+        }catch(Exception|LinkageError e){failed=true;ready=false;emit(safe(e)+"\n记录保留，将自动退避重试；暂不可通行");}
+        finally{
+            syncFailures=failed?Math.min(8,syncFailures+1):0;
+            boolean work=session!=null&&(pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);
+            nextTick=SystemClock.elapsedRealtime()+TerminalSyncSchedule.delay(work,syncFailures,jitter.nextInt(5000));
+        }
     }
-    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{tick();}finally{retryQueued.set(false);}});}}
+    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}
     public void exit(Done done){
         pauseCamera();ready=false;
         actor.execute(()->{try{
             if(session==null){complete(done,null);return;}
             // reset ack must precede drain when exiting an as-yet unsynchronized login.
-            if("DRAINING".equals(session.getString("state"))){tick();complete(done,session==null?null:"正在完成原账号同步，请稍候");return;}
+            if("DRAINING".equals(session.getString("state"))){nextTick=0;tick();complete(done,session==null?null:"正在完成原账号同步，请稍候");return;}
             store.state(session.getString("sessionId"),"PAUSING");session=store.active();
             prepare();drain();
             upload();finishDrain();
@@ -227,7 +241,7 @@ public final class TerminalRuntime {
             if(!match.present){gate.absent(now);return;}if(!gate.face(now))return;
             boolean online=ready()&&match.failure.isEmpty();
             String failure=!ready()?"NETWORK_UNAVAILABLE":match.failure.isEmpty()?"PLATFORM_TIMEOUT":match.failure;
-            JSONObject event=store.event(match.user,failure),result=null;boolean saved=false;
+            JSONObject event=store.event(match.user,failure),result=null;pendingEvents=store.pendingCount(session.getString("sessionId"));boolean saved=false;
             try{
                 result=client.request(online?"/api/terminal/verify":"/api/terminal/recovery/events",event);
                 store.receipt(event,result);saved=true;

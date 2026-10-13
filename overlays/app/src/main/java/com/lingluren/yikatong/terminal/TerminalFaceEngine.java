@@ -68,6 +68,12 @@ public final class TerminalFaceEngine {
     public static final class PhotoRejectedException extends Exception {
         PhotoRejectedException(String message){super(message);}
     }
+    public boolean reuse(TerminalStore store,long user,String hash){
+        require();byte[] cached=store.faceFeature(user,hash);
+        if(cached==null||cached.length!=TerminalSdkContract.FEATURE_BYTES)return false;
+        // Reapply to native search before ACK, including recovery after process death.
+        check(search.pushPersonById(store.faceId(user),cached),"缓存人员特征恢复");return true;
+    }
     public void upsert(TerminalStore store,long user,String hash,byte[] photo) throws Exception {
         require();BitmapFactory.Options dimensions=new BitmapFactory.Options();dimensions.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(photo,0,photo.length,dimensions);
         if(dimensions.outWidth<80||dimensions.outHeight<80||(long)dimensions.outWidth*dimensions.outHeight>16000000)throw new PhotoRejectedException("照片尺寸无效，请重新上传清晰正面照");

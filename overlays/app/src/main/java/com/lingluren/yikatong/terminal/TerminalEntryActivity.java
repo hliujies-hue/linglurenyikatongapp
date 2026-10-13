@@ -41,6 +41,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private TerminalCamera camera;
     private TextToSpeech speech;
     private boolean speechReady, accountPage;
+    private boolean startAfterPermission;
     private Button startButton;
     private TextView resultView;
     private TextureView cameraPreview;
@@ -96,6 +97,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         // Keep Demo cache keys so its model/recognition modules can reuse the same authorization.
         String saved = PreferencesUtil.getString("activate_online_key", "");
         if (!saved.isEmpty()) verify(saved);
+        if(!getSharedPreferences("terminal_permissions",MODE_PRIVATE).getBoolean("explained",false))main.post(this::explainPermissions);
     }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private GradientDrawable background(int color, int border) {
@@ -119,7 +121,33 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         TextView heading=new TextView(this);heading.setText(title);heading.setTextSize(26);heading.setTextColor(Color.rgb(22,96,76));heading.setPadding(0,dp(14),0,dp(12));root.addView(heading);
         communication=new TextView(this);communication.setText(runtime.communicationStatus());communication.setTextSize(14);communication.setTextColor(Color.rgb(70,90,79));communication.setPadding(0,0,0,dp(12));root.addView(communication);
         status=new TextView(this);status.setTextSize(14);status.setTextColor(Color.rgb(70,90,79));status.setPadding(0,0,0,dp(16));root.addView(status);
+        Button permissions=new Button(this);permissions.setText("权限管理 / 相机授权");permissions.setAllCaps(false);
+        root.addView(permissions);permissions.setOnClickListener(v->explainPermissions());
         return root;
+    }
+    private boolean cameraAllowed(){return Build.VERSION.SDK_INT<23||checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}
+    private void explainPermissions(){
+        if(destroyed||isFinishing())return;
+        getSharedPreferences("terminal_permissions",MODE_PRIVATE).edit().putBoolean("explained",true).apply();
+        new android.app.AlertDialog.Builder(this).setTitle("核验端权限说明")
+            .setMessage("相机：用于现场人脸检测与活体核验，当前"+(cameraAllowed()?"已授权":"未授权")+"。\n\n人员照片由平台下发，在内存处理；特征与回执存于应用私有目录，不读取手机相册，也不需要相册或全部文件权限。\n\n拒绝相机权限仍可同步、查看统计和退出账号；授权不会自动开始核验。")
+            .setPositiveButton(cameraAllowed()?"已了解":"授权相机",(d,w)->{if(!cameraAllowed())requestCamera(false);})
+            .setNeutralButton("系统权限设置",(d,w)->openAppPermissions()).setNegativeButton("稍后",null).show();
+    }
+    private void openAppPermissions(){
+        try{startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName())));}
+        catch(RuntimeException e){Toast.makeText(this,"请在手机设置 → 应用管理 → 一卡通核验端中开启相机权限",Toast.LENGTH_LONG).show();}
+    }
+    private void requestCamera(boolean start){
+        startAfterPermission=start;
+        if(cameraAllowed()){if(start)startScanning();return;}
+        boolean asked=getSharedPreferences("terminal_permissions",MODE_PRIVATE).getBoolean("cameraAsked",false);
+        if(asked&&!shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)){
+            new android.app.AlertDialog.Builder(this).setTitle("相机权限尚未开启").setMessage("系统可能已停止弹出授权窗口，请到系统权限设置中开启相机。同步和统计仍可使用。")
+                .setPositiveButton("打开设置",(d,w)->openAppPermissions()).setNegativeButton("取消",null).show();return;
+        }
+        getSharedPreferences("terminal_permissions",MODE_PRIVATE).edit().putBoolean("cameraAsked",true).apply();
+        requestPermissions(new String[]{Manifest.permission.CAMERA},200);
     }
     private void styleInput(EditText field, String hint) {
         field.setHint(hint);field.setTextSize(16);field.setSingleLine();field.setPadding(dp(14),dp(12),dp(14),dp(12));
@@ -242,7 +270,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         startButton=new Button(this);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
         startButton.setOnClickListener(v->{
             if("暂停核验".contentEquals(startButton.getText())){camera.stop();cameraPreview.setVisibility(android.view.View.GONE);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");resultView.setText("已暂停核验");return;}
-            if(Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},200);return;}
+            if(!cameraAllowed()){requestCamera(true);return;}
             startScanning();
         });
         Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
@@ -255,7 +283,15 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         connectionButton(root);runtime.retry();
     }
     private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");return;}cameraPreview.setVisibility(android.view.View.VISIBLE);if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
-    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){super.onRequestPermissionsResult(request,permissions,grants);if(request==200&&accountPage){if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startScanning();else status.setText("未授予相机权限，请在手机设置中允许后重试");}}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
+        super.onRequestPermissionsResult(request,permissions,grants);
+        if(request!=200)return;
+        boolean resume=startAfterPermission;startAfterPermission=false;
+        if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED){
+            Toast.makeText(this,"相机已授权",Toast.LENGTH_SHORT).show();if(resume&&accountPage)startScanning();
+        }else{status.setText("相机权限未授权；可继续同步和统计，需要核验时请打开权限管理");}
+    }
+
     private void showStatistics(){
         LinearLayout root=page("景区入园统计");int version=pageVersion;
         Calendar today=Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));SimpleDateFormat fmt=new SimpleDateFormat("yyyy-MM-dd",Locale.US);fmt.setTimeZone(today.getTimeZone());
