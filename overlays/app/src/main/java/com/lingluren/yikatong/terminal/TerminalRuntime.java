@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** One serial owner of camera decisions, native SDK, journal, synchronization and exit barrier. */
 public final class TerminalRuntime {
-    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open); void communication(String text); }
+    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open); void communication(String text); void diagnostics(String text); }
     public interface Done { void done(String error); }
     public interface Stats { void done(JSONObject data,String error); }
     private static TerminalRuntime instance;
@@ -39,7 +39,7 @@ public final class TerminalRuntime {
     private volatile long lastHeartbeat,pendingEvents;
     private volatile String overview="平台信息：等待同步";
     private String lastPhotoIssue="";
-    private long lastGuidance;
+    private long lastGuidance,lastDiagnostics;
     private volatile String lastStatus="正在恢复设备状态";
     private JSONObject session,feedback=new JSONObject();
     private PlatformClient client;
@@ -74,6 +74,7 @@ public final class TerminalRuntime {
     public void authorize(){authorized=true;actor.execute(()->{nextTick=0;tick();});}
     public void pauseCamera(){scanning=false;viewEpoch++;}
     public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
+    public void nextAttempt(){actor.execute(()->{gate.reset();lastGuidance=0;showResult(viewEpoch,"已开始新一轮，请正对镜头保持稳定","",false);});}
     private void connect() throws Exception {client=new PlatformClient(session.getString("origin"));client.token(session.optString("accessToken"));}
     public void login(String origin,String fingerprint,String username,String password,Done done){
         pauseCamera();actor.execute(()->{try {
@@ -239,6 +240,10 @@ public final class TerminalRuntime {
         actor.execute(()->{try{
             if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.getString("state")))return;
             TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);long now=SystemClock.elapsedRealtime();
+            if(now-lastDiagnostics>=800){
+                lastDiagnostics=now;String info=engine.diagnostics()+(match.failure.startsWith("GUIDE_")?" · "+guidance(match.failure):"");
+                main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(info);});
+            }
             if(!match.present){gate.absent(now);return;}
             if(match.failure.startsWith("GUIDE_")){
                 boolean waiting=gate.observing();
@@ -253,7 +258,9 @@ public final class TerminalRuntime {
                 result=client.request(online?"/api/terminal/verify":"/api/terminal/recovery/events",event);
                 store.receipt(event,result);saved=true;
                 boolean open=online&&TerminalProtocol.canOpen(result);
-                showResult(epoch,result.optBoolean("duplicate")?"该记录已处理，请移开后重新核验":result.optString("displayText",open?"核验成功，请通行":"暂不可通行"),result.optBoolean("duplicate")?"":result.optString("speechText"),open);
+                String display=result.optString("displayText",open?"核验成功，请通行":"暂不可通行");
+                if(!open)display=TerminalDecisionText.describe(match.user>0,result.optString("reason"),display);
+                showResult(epoch,result.optBoolean("duplicate")?"该记录已处理，请点击下一位或移开后重新核验":display+"\n再次测试请点击下一位，或移开人脸1.5秒",result.optBoolean("duplicate")?"":result.optString("speechText"),open);
                 acknowledge(event,result);
             }catch(Exception e){
                 if(!saved){ready=false;localFeedback(epoch,"network","网络异常，暂不可通行");}

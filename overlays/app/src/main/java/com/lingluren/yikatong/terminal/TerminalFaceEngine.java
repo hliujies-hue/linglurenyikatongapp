@@ -21,6 +21,8 @@ public final class TerminalFaceEngine {
     private FaceFeature feature;
     private FaceSearch search;
     private volatile boolean ready;
+    private String diagnostics="等待相机画面";
+    public String diagnostics(){return diagnostics;}
     private interface Init { void run(Callback callback); }
     private void await(Init op,String stage) throws Exception {
         CountDownLatch done=new CountDownLatch(1);int[] code={-1};
@@ -106,7 +108,8 @@ public final class TerminalFaceEngine {
         require();BDFaceImageInstance image=new BDFaceImageInstance(nv21,height,width,BDFaceSDKCommon.BDFaceImageType.BDFACE_IMAGE_TYPE_YUV_NV21,rotation,0);
         try {
             FaceInfo[] faces=detect(image);
-            if(faces==null||faces.length==0)return new Match(false,0,"");
+            if(faces==null||faces.length==0){diagnostics="未检测到人脸";return new Match(false,0,"");}
+            diagnostics="正在检测人脸质量";
             if(faces.length!=1)return new Match(true,0,"GUIDE_SINGLE_FACE");
             FaceInfo f=faces[0];BaseConfig c=SingleBaseConfig.getBaseConfig();
             if(Math.abs(f.yaw)>c.getGesture()||Math.abs(f.roll)>c.getGesture()||Math.abs(f.pitch)>c.getGesture())return new Match(true,0,"GUIDE_POSE");
@@ -117,12 +120,16 @@ public final class TerminalFaceEngine {
             float threshold=SingleBaseConfig.getBaseConfig().getRgbLiveScore();
             if(!finite(threshold)||threshold<=0||threshold>1)throw new IllegalStateException("活体阈值无效");
             float score=live.silentLive(BDFaceSDKCommon.LiveType.BDFACE_SILENT_LIVE_TYPE_RGB,image,faces[0].landmarks,threshold);
+            diagnostics=String.format(java.util.Locale.US,"RGB活体：%.3f / %.3f",score,threshold);
             if(!finite(score)||score<threshold)return new Match(true,0,"LIVENESS_FAILED");
             float minimum=SingleBaseConfig.getBaseConfig().getLiveThreshold();
             if(!finite(minimum)||minimum<=0||minimum>100)throw new IllegalStateException("识别阈值无效");
             List<? extends Feature> found=search.search(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,minimum,1,feature(image,faces[0]),true);
-            if(found==null||found.isEmpty()||found.get(0).getScore()<minimum)return new Match(true,0,"NO_MATCH");
-            long user=store.userForFace(found.get(0).getId());return new Match(true,user,user>0?"":"NO_MATCH");
+            if(found==null||found.isEmpty()){diagnostics+=" · 未找到达到识别阈值 "+minimum+" 的人员";return new Match(true,0,"NO_MATCH");}
+            float similarity=found.get(0).getScore();
+            diagnostics+=String.format(java.util.Locale.US," · 匹配：%.2f / %.2f",similarity,minimum);
+            if(!finite(similarity)||similarity<minimum)return new Match(true,0,"NO_MATCH");
+            long user=store.userForFace(found.get(0).getId());diagnostics+=user>0?" · 本地人员已匹配":" · 检索编号未映射到本地人员";return new Match(true,user,user>0?"":"NO_MATCH");
         }finally{image.destory();}
     }
 }

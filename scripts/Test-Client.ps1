@@ -13,7 +13,9 @@ try {
  $sdkTest = Join-Path $root 'tests\TerminalSdkContractTest.java'
  $schedule = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalSyncSchedule.java'
  $scheduleTest = Join-Path $root 'tests\TerminalSyncScheduleTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest
+ $decision = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalDecisionText.java'
+ $decisionTest = Join-Path $root 'tests\TerminalDecisionTextTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
@@ -25,5 +27,7 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'SDK contract and readiness tests failed' }
  & java -cp $out TerminalSyncScheduleTest
  if($LASTEXITCODE -ne 0) { throw 'Sync scheduling tests failed' }
+ & java -cp $out TerminalDecisionTextTest
+ if($LASTEXITCODE -ne 0) { throw 'Decision feedback tests failed' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

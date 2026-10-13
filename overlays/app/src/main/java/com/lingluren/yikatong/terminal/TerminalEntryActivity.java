@@ -43,7 +43,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private boolean speechReady, accountPage;
     private boolean startAfterPermission;
     private Button startButton;
-    private TextView resultView;
+    private TextView resultView,diagnosticView;
     private TextureView cameraPreview;
     private int pageVersion;
     private String lastState="正在恢复设备状态";
@@ -273,6 +273,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             if(!cameraAllowed()){requestCamera(true);return;}
             startScanning();
         });
+        Button next=new Button(this);next.setText("下一位 / 重新核验");styleButton(next);root.addView(next);
+        next.setOnClickListener(v->{if(!"暂停核验".contentEquals(startButton.getText())){status.setText("请先开始核验");return;}runtime.nextAttempt();});
+        diagnosticView=new TextView(this);diagnosticView.setText("识别诊断：等待相机画面");diagnosticView.setTextSize(13);diagnosticView.setTextColor(Color.rgb(70,90,79));diagnosticView.setPadding(0,dp(12),0,dp(12));root.addView(diagnosticView);
         Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
         Button sync=new Button(this);sync.setText("立即同步 / 重试回执");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->{status.setText("同步重试已安排，请查看处理进度");runtime.retry();});
         Button loginAgain=new Button(this);loginAgain.setText("重新验证原账号");styleButton(loginAgain);root.addView(loginAgain);loginAgain.setOnClickListener(v->showLogin());
@@ -311,6 +314,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             startButton.setEnabled(ready);
         }if(!hasSession&&authorized)showLogin();
     }
+    @Override public void diagnostics(String text){if(!destroyed&&accountPage&&diagnosticView!=null)diagnosticView.setText(text);}
     @Override public void communication(String text){if(!destroyed&&communication!=null)communication.setText(text);}
     @Override public void result(String text,String voice,boolean open){
         if(destroyed||!accountPage||resultView==null)return;resultView.setText(text);resultView.setTextColor(open?Color.rgb(22,120,60):Color.rgb(180,45,30));

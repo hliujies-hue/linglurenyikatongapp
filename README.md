@@ -2,7 +2,7 @@
 
 需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.6-recognition`（109）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.3.7-repeat`（110）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 
@@ -40,3 +40,5 @@ if ($LASTEXITCODE -ne 0) { throw '真机检查失败' }
 首次进入显示权限说明，可授权相机；所有页面保留权限管理入口。拒绝或系统不再询问时可跳转应用设置，统计与同步不依赖相机权限。平台照片不读取手机相册，不要求相册/全部文件权限。
 
 空闲心跳15–20秒、通信30秒；有任务3–4秒继续，失败5–65秒退避错峰。已存储的同用户/同版本特征重新放入原生检索成功后直接确认，不重复下载照片；换版本或删除后不能复用。人员来自平台任务队列，目前为增量拉取，尚未实现长连接推送。先更新平台，再覆盖安装APP。更多容量验证待办见需求台账。
+
+0.3.7：交替测试可点击“下一位 / 重新核验”；不同已录入身份稳定匹配可触发新一轮，同一人需移开或手动重试。诊断显示实际活体/识别分数，业务结果区分本地未匹配与平台拒绝。共享人员库改造仍待开发。

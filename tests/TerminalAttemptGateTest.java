@@ -5,5 +5,11 @@ public final class TerminalAttemptGateTest {
  g.absent(1000);g.absent(2500);check(!g.decision(0,"NO_MATCH",2501));check(!g.decision(0,"NO_MATCH",2801));check(g.decision(0,"NO_MATCH",3101));
  g.reset();check(!g.decision(42,"",0));check(!g.decision(43,"",250));check(g.decision(43,"",450));
  g.reset();check(!g.decision(42,"",0));check(!g.decision(42,"",2000));check(g.decision(42,"",2200));
+ g.reset();long clock=10000;
+ for(int cycle=0;cycle<30;cycle++){
+  g.reset();check(!g.decision(0,"NO_MATCH",clock));check(!g.decision(0,"NO_MATCH",clock+300));check(g.decision(0,"NO_MATCH",clock+600));
+  check(!g.decision(42,"",clock+1900));check(g.decision(42,"",clock+2100));check(!g.decision(42,"",clock+2400));
+  check(!g.decision(43,"",clock+3500));check(g.decision(43,"",clock+3700));clock+=5000;
+ }
  System.out.println("PASS: stable identity, transient rejection, quality guidance, stale frame gap and presentation rearm");}
 }
