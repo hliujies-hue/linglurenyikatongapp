@@ -11,9 +11,8 @@ import javax.net.ssl.HttpsURLConnection;
 public final class PlatformClient {
     private final String origin;
     private String token="";
-    public static final class ApiException extends IOException {
-        public final int status;
-        ApiException(int status,String message){super(message);this.status=status;}
+    public static final class ApiException extends TerminalDrainCoordinator.ResponseException {
+        ApiException(int status,String message){super(status,message);}
     }
     public PlatformClient(String origin){this.origin=TerminalEndpointPolicy.normalizeOrigin(origin);}
     public String origin(){return origin;}

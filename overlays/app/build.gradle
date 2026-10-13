@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 104
-        versionName "0.3.1-presence"
+        versionCode 105
+        versionName "0.3.2-drain"
         multiDexEnabled true
 
         ndk {

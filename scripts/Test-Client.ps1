@@ -7,11 +7,15 @@ try {
  $gate = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalAttemptGate.java'
  $gateTest = Join-Path $root 'tests\TerminalAttemptGateTest.java'
  $test = Join-Path $root 'tests\TerminalEndpointPolicyTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest
+ $drain = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalDrainCoordinator.java'
+ $drainTest = Join-Path $root 'tests\TerminalDrainCoordinatorTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
  & java -cp $out TerminalAttemptGateTest
  if($LASTEXITCODE -ne 0) { throw 'Face attempt deduplication tests failed' }
+ & java -cp $out TerminalDrainCoordinatorTest
+ if($LASTEXITCODE -ne 0) { throw 'Session drain regression tests failed' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

@@ -153,7 +153,10 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void styleButton(Button button) {
         button.setTextColor(Color.WHITE);button.setTextSize(17);button.setAllCaps(false);
-        button.setBackground(background(Color.rgb(22,96,76),0));button.setMinHeight(dp(52));
+        android.graphics.drawable.StateListDrawable states=new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[]{-android.R.attr.state_enabled},background(Color.rgb(160,173,165),0));
+        states.addState(new int[]{},background(Color.rgb(22,96,76),0));
+        button.setBackground(states);button.setMinHeight(dp(52));
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(52));params.topMargin=dp(10);button.setLayoutParams(params);
     }
     private String savedOrigin() {
@@ -255,7 +258,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void showAccount() {
         LinearLayout root=page("设备状态");accountPage=true;status.setText(lastState);
-        TextureView preview=new TextureView(this);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(280)));
+        TextureView preview=new TextureView(this);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(180)));
         resultView=new TextView(this);resultView.setText("请先开始核验");resultView.setTextSize(23);resultView.setPadding(0,dp(16),0,dp(16));root.addView(resultView);
         camera=new TerminalCamera(this,runtime,preview,text->{status.setText(text);startButton.setText("开始核验");});
         startButton=new Button(this);startButton.setText("开始核验");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
@@ -265,7 +268,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             startScanning();
         });
         Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
-        Button sync=new Button(this);sync.setText("立即同步 / 重试回执");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->runtime.retry());
+        Button sync=new Button(this);sync.setText("立即同步 / 重试回执");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->{status.setText("同步重试已安排，请查看处理进度");runtime.retry();});
         Button loginAgain=new Button(this);loginAgain.setText("重新验证原账号");styleButton(loginAgain);root.addView(loginAgain);loginAgain.setOnClickListener(v->showLogin());
         Button logout=new Button(this);logout.setText("同步完成后退出账号");styleButton(logout);root.addView(logout);
         logout.setOnClickListener(v->{camera.stop();logout.setEnabled(false);status.setText("已暂停核验，正在排空记录、人员任务和回执");

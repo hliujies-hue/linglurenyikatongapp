@@ -26,7 +26,7 @@ public final class TerminalRuntime {
     private final TerminalAttemptGate gate=new TerminalAttemptGate();
     private final ScheduledExecutorService actor=Executors.newSingleThreadScheduledExecutor();
     private final Handler main=new Handler(Looper.getMainLooper());
-    private final AtomicBoolean frameQueued=new AtomicBoolean();
+    private final AtomicBoolean frameQueued=new AtomicBoolean(),retryQueued=new AtomicBoolean();
     private volatile Listener listener;
     private volatile boolean ready,hasSession,scanning,authorized;
     private volatile long viewEpoch;
@@ -82,7 +82,10 @@ public final class TerminalRuntime {
     private void syncPeople() throws Exception {
         JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session)).getJSONArray("items");
         if(tasks.length()>0)ready=false;
-        for(int i=0;i<tasks.length();i++){
+        long batchStarted=SystemClock.elapsedRealtime();
+        for(int i=0;i<tasks.length()&&i<4;i++){
+            if(i>0&&SystemClock.elapsedRealtime()-batchStarted>1500)break;
+            emit("正在同步人员，本批第"+(i+1)+"项；本地人员："+store.faces());
             JSONObject task=tasks.getJSONObject(i),ack=TerminalProtocol.ref(session);
             ack.put("taskId",task.getLong("taskId")).put("receipt",task.getString("receipt")).put("targetHash",task.getString("targetHash")).put("grantGeneration",task.getLong("grantGeneration"));
             try {
@@ -113,12 +116,12 @@ public final class TerminalRuntime {
             upload();
             // Retry release first: the server may have committed exit before its response was lost.
             if("DRAINING".equals(session.getString("state"))){
-                try{tryRelease();return;}catch(PlatformClient.ApiException e){if(e.status!=400)throw e;}
+                finishDrain();return;
             }
             prepare();presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
             syncPeople();
-            if("DRAINING".equals(session.getString("state"))){tryRelease();return;}
+            if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
             JSONObject heartbeat=TerminalProtocol.ref(session).put("appVersion",TerminalProtocol.VERSION).put("sdkStatus",engine.ready()?"READY":"ERROR").put("localFaces",store.faces()).put("pendingEvents",store.pendingCount(session.getString("sessionId")));
             JSONObject result=client.request("/api/terminal/heartbeat",heartbeat);
             ready=result.optBoolean("productionReady");
@@ -127,7 +130,7 @@ public final class TerminalRuntime {
             emit("设备："+session.optString("deviceName")+"\n账号："+session.optString("username")+"\n人员："+store.faces()+" · 待确认记录："+store.pendingCount(session.getString("sessionId"))+"\n"+(ready?"平台通信正常，可以开始核验":"正在同步，暂不可通行"));
         }catch(Exception|LinkageError e){ready=false;emit(safe(e)+"\n记录保留，将自动重试；暂不可通行");}
     }
-    public void retry(){actor.execute(this::tick);}
+    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{tick();}finally{retryQueued.set(false);}});}}
     public void exit(Done done){
         pauseCamera();ready=false;
         actor.execute(()->{try{
@@ -136,13 +139,26 @@ public final class TerminalRuntime {
             if("DRAINING".equals(session.getString("state"))){tick();complete(done,session==null?null:"正在完成原账号同步，请稍候");return;}
             store.state(session.getString("sessionId"),"PAUSING");session=store.active();
             prepare();drain();
-            upload();syncPeople();tryRelease();
+            upload();finishDrain();
             complete(done,session==null?null:"正在完成原账号同步，请稍候");
         }catch(Exception|LinkageError e){complete(done,safe(e)+"；原账号保留，请重试同步退出");}});
     }
     private void drain() throws Exception {
         JSONObject current=store.active();client.request("/api/terminal/recovery/drain",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
         store.state(current.getString("sessionId"),"DRAINING");session=store.active();
+    }
+    private void finishDrain() throws Exception {
+        ready=false;
+        boolean released=TerminalDrainCoordinator.run(new TerminalDrainCoordinator.Work(){
+            public void release() throws Exception {tryRelease();}
+            public void sync() throws Exception {prepare();syncPeople();}
+        });
+        if(!released){
+            JSONObject current=store.active();
+            JSONObject progress=client.request("/api/terminal/recovery/drain",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
+            String problem=progress.optString("lastSyncError");
+            emit("正在同步后退出，完成后自动返回登录\n剩余人员任务："+progress.optLong("pendingPeople",progress.optLong("pendingSync"))+" · 人员回执："+progress.optLong("pendingReceipts")+"\n待确认入园记录："+store.pendingCount(current.getString("sessionId"))+(problem.isEmpty()?"":"\n同步失败原因："+problem)+"\n可重试同步、查看统计或连接设置；暂不可通行");
+        }
     }
     private void tryRelease() throws Exception {
         JSONObject current=store.active();
