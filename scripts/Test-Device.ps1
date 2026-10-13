@@ -19,14 +19,6 @@ if($Install) {
  & $adb -s $Serial install -r $apk
  if($LASTEXITCODE -ne 0) { throw 'APK installation failed; existing app and data retained' }
 }
-$package = 'com.lingluren.yikatong.terminal'
-& $adb -s $Serial shell am force-stop $package
-& $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity"
-if($LASTEXITCODE -ne 0) { throw 'Terminal launch failed' }
-Start-Sleep -Seconds 5
-$processId = (& $adb -s $Serial shell pidof $package | Out-String).Trim()
-if(-not $processId) { throw 'Terminal process exited; inspect Android Studio Logcat' }
-Write-Host "PASS: installed terminal launched and process remains alive (PID $processId)."
 if($VerifyJournal) {
  if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.exe'))) {
   $candidate=Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
@@ -42,5 +34,14 @@ if($VerifyJournal) {
   if($LASTEXITCODE -ne 0) { throw 'Device journal tests failed' }
  } finally { Pop-Location; $env:ANDROID_SERIAL=$previousSerial }
 }
+$package = 'com.lingluren.yikatong.terminal'
+& $adb -s $Serial shell am force-stop $package
+& $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity"
+if($LASTEXITCODE -ne 0) { throw 'Terminal launch failed' }
+Start-Sleep -Seconds 5
+$processId = (& $adb -s $Serial shell pidof $package | Out-String).Trim()
+if(-not $processId) { throw 'Terminal process exited; inspect Android Studio Logcat' }
+Write-Host "PASS: installed terminal launched and process remains alive (PID $processId)."
+
 Write-Host 'On phone: activate, login with a scenic child account, wait for sync, then check real face/liveness, rejection, network recovery and sync-before-switch. Launch/journal tests do not certify face matching.'
 
