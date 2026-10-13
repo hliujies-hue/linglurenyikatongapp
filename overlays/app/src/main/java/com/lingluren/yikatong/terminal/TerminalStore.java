@@ -15,7 +15,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 
-/** Private, durable session journal. No UI exposes events, identities or photographs. */
+/** Private, durable session journal. UI exposes current-session outcomes only, without identities or photographs. */
 public final class TerminalStore extends SQLiteOpenHelper {
     public TerminalStore(Context context) { this(context,"terminal-v2.db"); }
     TerminalStore(Context context,String database) { super(context,database,null,1); }
@@ -40,17 +40,43 @@ public final class TerminalStore extends SQLiteOpenHelper {
             return null;
         }
     }
+    public String libraryId(String origin) throws Exception {
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();try{
+            String owner=metadata("library_origin","");
+            if(!owner.isEmpty()&&!owner.equals(origin))throw new IllegalStateException("人员库属于其他平台，请完成平台切换初始化");
+            String id=metadata("library_id","");
+            if(id.isEmpty()){id=UUID.randomUUID().toString().replace("-","")+UUID.randomUUID().toString().replace("-","");metadata("library_id",id,true);}
+            metadata("library_origin",origin,true);db.setTransactionSuccessful();return id;
+        }finally{db.endTransaction();}
+    }
+    public boolean libraryBelongsTo(String origin) throws Exception {
+        String owner=metadata("library_origin","");
+        if(!owner.isEmpty())return owner.equals(origin);
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT snapshot FROM sessions ORDER BY rowid DESC LIMIT 1",null)){
+            return !c.moveToFirst()||origin.equals(new JSONObject(c.getString(0)).optString("origin"));
+        }
+    }
+    public void switchLibrary(String origin) throws Exception {
+        if(active()!=null)throw new IllegalStateException("原账号尚未退出");
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();try{
+            clearFaces();db.delete("metadata","name IN ('library_origin','library_id')",null);
+            libraryId(origin);db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
     public void bind(JSONObject session) throws Exception {
         TerminalProtocol.validateSession(session);
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try {
             JSONObject old=active();
             if(old!=null&&!old.getString("sessionId").equals(session.getString("sessionId")))throw new IllegalStateException("原账号未完成同步退出，不能覆盖");
-            if(old==null && (!session.getBoolean("resetRequired") || session.optLong("lastSequence",0)!=0 || !"ACTIVE".equals(session.getString("state"))))
+            if(old==null && (session.optBoolean("resumed") || !session.getBoolean("resetRequired") || session.optLong("lastSequence",0)!=0 || !"ACTIVE".equals(session.getString("state"))))
                 throw new IllegalStateException("平台仍有原会话，但本机记录缺失；请联系平台核对，禁止清除应用数据");
             ContentValues v=new ContentValues();v.put("snapshot",session.toString());v.put("state",old!=null&&!"ACTIVE".equals(old.getString("state"))?old.getString("state"):session.getString("state"));
             if(old==null){v.put("id",session.getString("sessionId"));db.insertOrThrow("sessions",null,v);}
-            else db.update("sessions",v,"id=?",new String[]{session.getString("sessionId")});
+            else {
+                if(!old.optString("libraryMode").equals(session.optString("libraryMode")))v.put("reset_done",0);
+                db.update("sessions",v,"id=?",new String[]{session.getString("sessionId")});
+            }
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
@@ -105,6 +131,28 @@ public final class TerminalStore extends SQLiteOpenHelper {
         ContentValues v=new ContentValues();v.put("user_id",user);v.put("target_hash",hash);v.put("feature",feature);
         int id=faceId(user);if(id==0){long next=getWritableDatabase().insertOrThrow("faces",null,v);if(next>Integer.MAX_VALUE)throw new IllegalStateException("本地人脸编号达到上限");return (int)next;}
         getWritableDatabase().update("faces",v,"local_id=?",new String[]{Integer.toString(id)});return id;
+    }
+    public JSONObject dashboard(String sessionID) throws Exception {
+        java.util.Calendar day=java.util.Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+        day.set(java.util.Calendar.HOUR_OF_DAY,0);day.set(java.util.Calendar.MINUTE,0);day.set(java.util.Calendar.SECOND,0);day.set(java.util.Calendar.MILLISECOND,0);
+        JSONObject data=new JSONObject().put("localFaces",faces()).put("pending",pendingCount(sessionID));
+        // Stored responses are JSONObject.toString(): compact JSON, never arbitrary user text.
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*),COALESCE(SUM(CASE WHEN instr(response,'\"result\":\"PASS\"')>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN response IS NULL THEN 1 ELSE 0 END),0) FROM events WHERE session_id=? AND created_at>=?",new String[]{sessionID,Long.toString(day.getTimeInMillis())})){
+            c.moveToFirst();data.put("today",c.getLong(0)).put("passed",c.getLong(1)).put("awaiting",c.getLong(2)).put("denied",c.getLong(0)-c.getLong(1)-c.getLong(2));
+        }
+        org.json.JSONArray items=new org.json.JSONArray();
+        SimpleDateFormat format=new SimpleDateFormat("MM-dd HH:mm:ss",Locale.CHINA);format.setTimeZone(day.getTimeZone());
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT payload,response,confirmed_at,created_at FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT 20",new String[]{sessionID})){
+            while(c.moveToNext()){
+                JSONObject row=new JSONObject().put("time",format.format(new Date(c.getLong(3)))).put("confirmed",!c.isNull(2));
+                if(c.isNull(1))row.put("text","等待平台处理 / 补传");
+                else {JSONObject reply=new JSONObject(c.getString(1)),event=new JSONObject(c.getString(0));
+                    row.put("text","PASS".equals(reply.optString("result"))?"平台记录：核验通过":TerminalDecisionText.describe(event.optLong("userId")>0,reply.optString("reason"),reply.optString("displayText","未放行")));
+                }
+                items.put(row);
+            }
+        }
+        return data.put("items",items);
     }
     public byte[] faceFeature(long user,String hash){
         try(Cursor c=getReadableDatabase().rawQuery("SELECT feature FROM faces WHERE user_id=? AND target_hash=?",new String[]{Long.toString(user),hash})){

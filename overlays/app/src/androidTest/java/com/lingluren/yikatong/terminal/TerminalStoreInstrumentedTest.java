@@ -34,4 +34,38 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
   assertNull(store.faceFeature(7,"hash-two"));assertNull(store.faceFeature(8,"hash-one"));
   store.deleteFace(7);assertNull(store.faceFeature(7,"hash-one"));
  }
+
+ public void testResumedSessionCannotReplaceLostJournal() throws Exception {
+  try{store.bind(session(repeat("a",48)).put("resumed",true).put("libraryMode","SHARED"));fail("lost journal silently resumed");}catch(IllegalStateException expected){}
+  assertNull(store.active());
+ }
+ public void testLibraryPersistsAcrossLogoutRestartAndNewAccount() throws Exception {
+  String origin="https://platform.example",id=repeat("a",48),library=store.libraryId(origin);
+  store.bind(session(id).put("origin",origin).put("libraryMode","SHARED").put("libraryId",library));
+  store.saveFace(7,"stable-hash",new byte[512]);store.resetDone(id);store.state(id,"RELEASED");
+  store.close();store=new TerminalStore(context,name);
+  assertEquals(library,store.libraryId(origin));assertEquals(1L,store.faces());assertNull(store.active());
+  store.bind(session(repeat("d",48)).put("origin",origin).put("libraryMode","SHARED").put("libraryId",library));
+  assertNotNull(store.faceFeature(7,"stable-hash"));assertFalse(store.active().getBoolean("resetDone"));
+  try{store.switchLibrary("https://other.example");fail("changed platform with active session");}catch(IllegalStateException expected){}
+  assertEquals(1L,store.faces());
+  store.state(repeat("d",48),"RELEASED");store.switchLibrary("https://other.example");
+  assertEquals(0L,store.faces());assertFalse(library.equals(store.libraryId("https://other.example")));
+ }
+ public void testSharedUpgradeKeepsJournalAndRequestsReadinessAck() throws Exception {
+  String id=repeat("a",48);store.bind(session(id));store.resetDone(id);JSONObject e=store.event(7,"NO_MATCH");
+  String library=store.libraryId("https://platform.example");
+  store.bind(session(id).put("libraryMode","SHARED").put("libraryId",library));
+  assertFalse(store.active().getBoolean("resetDone"));assertEquals(1L,store.active().getLong("lastSequence"));
+  assertEquals(e.getString("eventId"),store.pending(id).get(0).getString("eventId"));
+ }
+ public void testDashboardSeparatesConfirmedPendingAndAccountHistory() throws Exception {
+  String id=repeat("a",48);store.bind(session(id));
+  JSONObject pass=store.event(7,""),denied=store.event(0,"NO_MATCH");store.event(8,"NETWORK_UNAVAILABLE");
+  store.receipt(pass,receipt(pass));store.confirmed(pass);
+  store.receipt(denied,receipt(denied).put("result","DENY").put("reason","NO_MATCH").put("open",false));
+  JSONObject data=store.dashboard(id);assertEquals(3,data.getInt("today"));assertEquals(1,data.getInt("passed"));assertEquals(1,data.getInt("denied"));assertEquals(1,data.getInt("awaiting"));assertEquals(2,data.getInt("pending"));
+  assertEquals(0,store.dashboard(repeat("d",48)).getInt("today"));
+  assertEquals(3,data.getJSONArray("items").length());
+ }
 }

@@ -31,7 +31,8 @@ public final class TerminalFaceEngine {
         if(code[0]!=0)throw new IllegalStateException(stage+"失败（"+code[0]+"）");
     }
     public boolean ready(){return ready;}
-    public void init(Context context,TerminalStore store) throws Exception {
+    public interface Progress {void update(long loaded,long total,long elapsed);}
+    public void init(Context context,TerminalStore store,Progress progress) throws Exception {
         if(ready)return;
         detect=new FaceDetect();live=new FaceLive();feature=new FaceFeature();search=new FaceSearch();
         applySettings();
@@ -41,7 +42,14 @@ public final class TerminalFaceEngine {
         await(cb->feature.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,GlobalSet.RECOGNIZE_NIR_MODEL,"",cb),"特征模型加载");
         search.setNeedJoinDB(false);search.setMaxUpdateSize(0);
         check(search.featureClear(),"检索库清空");
-        try(Cursor rows=store.allFaces()){while(rows.moveToNext())check(search.pushPersonById(rows.getInt(0),rows.getBlob(1)),"检索库恢复");}
+        long total=store.faces(),loaded=0,started=android.os.SystemClock.elapsedRealtime(),last=started;
+        progress.update(0,total,0);
+        try(Cursor rows=store.allFaces()){while(rows.moveToNext()){
+            check(search.pushPersonById(rows.getInt(0),rows.getBlob(1)),"检索库恢复");loaded++;
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(now-last>=500){progress.update(loaded,total,now-started);last=now;}
+        }}
+        progress.update(loaded,total,android.os.SystemClock.elapsedRealtime()-started);
         ready=true;
     }
     public void applySettings(){

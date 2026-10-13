@@ -83,24 +83,40 @@ public final class TerminalRuntime {
             PlatformClient next=new PlatformClient(origin);
             JSONObject info=next.request("/api/terminal/login",new JSONObject().put("username",username).put("password",password));
             next.token(info.getString("accessToken"));
+            if(!store.libraryBelongsTo(origin)){if(engine.ready())engine.reset(store);store.switchLibrary(origin);}
+            String libraryId=store.libraryId(origin);
             JSONObject binding;
-            try{binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION));}
+            try{binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION).put("libraryId",libraryId));}
             catch(Exception e){next.logout();throw e;}
+            if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){next.logout();throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
             store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
         }catch(Exception e){complete(done,safe(e));}});
+    }
+    private void ensureSharedLibrary() throws Exception {
+        if("SHARED".equals(session.optString("libraryMode"))){
+            if(!session.optString("libraryId").equals(store.metadata("library_id",""))||!session.optString("origin").equals(store.metadata("library_origin","")))throw new IllegalStateException("共享人员库标识不一致，请联系平台核对，禁止清除数据");
+            return;
+        }
+        JSONObject binding=client.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2)
+            .put("fingerprint",session.getString("fingerprint")).put("appVersion",TerminalProtocol.VERSION)
+            .put("libraryId",store.libraryId(session.getString("origin"))));
+        if(!"SHARED".equals(binding.optString("libraryMode"))||!store.metadata("library_id", "").equals(binding.optString("libraryId")))throw new IllegalStateException("请先更新配套平台以启用共享人员库");
+        binding.put("origin",session.getString("origin")).put("fingerprint",session.getString("fingerprint"))
+            .put("username",session.getString("username")).put("accessToken",session.getString("accessToken"));
+        store.bind(binding);session=store.active();platformSynced=false;pendingPeople=true;ready=false;
     }
     private void prepare() throws Exception {
         if(!authorized)throw new IllegalStateException("等待设备激活");
         if(modelFailed)throw new IllegalStateException("算法加载失败，请重启应用后重试；原账号记录已保留");
         if(!engine.ready()){
             emit("正在加载算法和本地人员库，请稍候");presence.sdk("AUTHORIZED","MODEL_LOADING",null);
-            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store);presence.sdk("AUTHORIZED","READY",null);}catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
+            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store,(loaded,total,elapsed)->emit("正在加载本地特征："+loaded+" / "+total+"，已用时 "+elapsed/1000+" 秒；无需重新下载照片"));presence.sdk("AUTHORIZED","READY",null);}catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
         }
         if(!session.optBoolean("resetDone")){
-            engine.reset(store);
+            if(!"SHARED".equals(session.optString("libraryMode")))engine.reset(store);
             JSONObject ack=client.request("/api/terminal/recovery/reset/ack",TerminalProtocol.ref(session));
-            if(!ack.optBoolean("acknowledged"))throw new IllegalStateException("本地库重置尚未获平台确认");
+            if(!ack.optBoolean("acknowledged"))throw new IllegalStateException("本地人员库就绪尚未获平台确认");
             store.resetDone(session.getString("sessionId"));session=store.active();
         }
     }
@@ -169,6 +185,7 @@ public final class TerminalRuntime {
             +"\n平台配置：已同步 · 人员清单："+(result.optBoolean("rosterReady")?"已生成":"生成中")
             +"\n本地已保存特征："+store.faces()+" · 待同步："+result.optLong("pendingPeople")+" · 待回执："+result.optLong("pendingReceipts")
             +"\n待确认入园记录："+pendingEvents+" · 照片待处理："+result.optLong("photoRejected")
+            +"\n人员库："+("SHARED".equals(session.optString("libraryMode"))?"同平台共享 · 换账号保留":"旧版会话库")
             +"\nSDK："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
             +"\n平台状态更新时间："+result.optString("serverTime")
             +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
@@ -184,6 +201,7 @@ public final class TerminalRuntime {
             if("DRAINING".equals(session.getString("state"))){
                 finishDrain();return;
             }
+            if("ACTIVE".equals(session.optString("state")))ensureSharedLibrary();
             if(!platformSynced||!ready)heartbeat(false);
             prepare();presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
@@ -281,6 +299,12 @@ public final class TerminalRuntime {
     }
     private void localFeedback(long epoch,String key,String fallback){JSONObject messages=feedback.optJSONObject("messages"),item=messages==null?null:messages.optJSONObject(key);showResult(epoch,item==null?fallback:item.optString("text",fallback),feedback.optBoolean("voiceEnabled",true)?(item==null?fallback:item.optString("speech")):"",false);}
     private void showResult(long epoch,String text,String speech,boolean open){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(text,speech,open);});}
+    public void localRecords(Stats done){actor.execute(()->{try{
+        if(session==null)throw new IllegalStateException("请先登录");
+        JSONObject result=store.dashboard(session.getString("sessionId"));
+        result.put("libraryMode",session.optString("libraryMode")).put("sdkReady",engine.ready()).put("appVersion",TerminalProtocol.VERSION);
+        main.post(()->done.done(result,null));
+    }catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     public void statistics(String from,String to,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject result=client.statistics(from,to);main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     private void failure(Throwable e){emit(safe(e));}
     private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":m;}

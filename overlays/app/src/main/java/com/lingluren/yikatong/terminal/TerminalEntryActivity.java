@@ -276,6 +276,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         Button next=new Button(this);next.setText("下一位 / 重新核验");styleButton(next);root.addView(next);
         next.setOnClickListener(v->{if(!"暂停核验".contentEquals(startButton.getText())){status.setText("请先开始核验");return;}runtime.nextAttempt();});
         diagnosticView=new TextView(this);diagnosticView.setText("识别诊断：等待相机画面");diagnosticView.setTextSize(13);diagnosticView.setTextColor(Color.rgb(70,90,79));diagnosticView.setPadding(0,dp(12),0,dp(12));root.addView(diagnosticView);
+        Button records=new Button(this);records.setText("本机今日记录 / 维护状态");styleButton(records);root.addView(records);records.setOnClickListener(v->showLocalRecords());
         Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
         Button sync=new Button(this);sync.setText("立即同步 / 重试回执");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->{status.setText("同步重试已安排，请查看处理进度");runtime.retry();});
         Button loginAgain=new Button(this);loginAgain.setText("重新验证原账号");styleButton(loginAgain);root.addView(loginAgain);loginAgain.setOnClickListener(v->showLogin());
@@ -295,6 +296,26 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         }else{status.setText("相机权限未授权；可继续同步和统计，需要核验时请打开权限管理");}
     }
 
+    private void showLocalRecords(){
+        LinearLayout root=page("本机记录与维护");int version=pageVersion;
+        TextView summary=new TextView(this);summary.setTextSize(16);summary.setTextColor(Color.rgb(45,65,55));root.addView(summary);
+        Button refresh=new Button(this);refresh.setText("刷新记录");styleButton(refresh);root.addView(refresh);
+        Button retry=new Button(this);retry.setText("重试同步与回执");styleButton(retry);root.addView(retry);retry.setOnClickListener(v->runtime.retry());
+        TextView rows=new TextView(this);rows.setTextSize(15);rows.setTextColor(Color.rgb(45,65,55));rows.setPadding(0,dp(16),0,dp(16));root.addView(rows);
+        refresh.setOnClickListener(v->{refresh.setEnabled(false);runtime.localRecords((data,error)->{
+            if(destroyed||pageVersion!=version)return;refresh.setEnabled(true);
+            if(error!=null){status.setText(error);return;}
+            status.setText("今日按北京时间统计，仅当前登录会话、本机记录；景区全量统计请返回查看景区入园统计。通过数为平台记录结果，不代表重复回执再次放行。");
+            summary.setText("今日记录："+data.optLong("today")+" · 通过："+data.optLong("passed")+" · 拒绝："+data.optLong("denied")+" · 待处理："+data.optLong("awaiting")
+                +"\n未确认回执："+data.optLong("pending")+" · 本地特征："+data.optLong("localFaces")
+                +"\n人员库："+("SHARED".equals(data.optString("libraryMode"))?"同平台共享，换号保留":"旧版会话库")
+                +"\nSDK："+(data.optBoolean("sdkReady")?"就绪":"未就绪")+" · APP："+data.optString("appVersion"));
+            StringBuilder text=new StringBuilder("最近20条当前会话记录\n\n");JSONArray items=data.optJSONArray("items");
+            if(items!=null)for(int i=0;i<items.length();i++){JSONObject row=items.optJSONObject(i);if(row!=null)text.append(row.optString("time")).append(" · ").append(row.optBoolean("confirmed")?"已确认":"待确认").append("\n").append(row.optString("text")).append("\n\n");}
+            rows.setText(text);
+        });});
+        Button back=new Button(this);back.setText("返回设备状态");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());refresh.performClick();
+    }
     private void showStatistics(){
         LinearLayout root=page("景区入园统计");int version=pageVersion;
         Calendar today=Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));SimpleDateFormat fmt=new SimpleDateFormat("yyyy-MM-dd",Locale.US);fmt.setTimeZone(today.getTimeZone());
