@@ -24,17 +24,29 @@ import java.util.concurrent.Executors;
 import com.example.authlibrary.BdFaceAuth;
 import com.baidu.idl.main.facesdk.utils.PreferencesUtil;
 import java.util.concurrent.atomic.AtomicBoolean;
+import android.view.TextureView;
+import android.app.DatePickerDialog;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.speech.tts.TextToSpeech;
+import java.util.Calendar;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.text.SimpleDateFormat;
 
 /** Terminal entry over the original Demo authorization module, not a replacement SDK. */
-public final class TerminalEntryActivity extends Activity {
+public final class TerminalEntryActivity extends Activity implements TerminalRuntime.Listener {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy = new AtomicBoolean(false);
-    private final ExecutorService network = Executors.newSingleThreadExecutor();
-    private volatile PlatformClient platform;
+    private TerminalRuntime runtime;
+    private TerminalCamera camera;
+    private TextToSpeech speech;
+    private boolean speechReady, accountPage;
+    private Button startButton;
+    private TextView resultView;
     private int pageVersion;
-    private long bindingGeneration;
-    private boolean communicating;
-    private final Runnable heartbeatTick = () -> sendHeartbeat();
+    private String lastState="正在恢复设备状态";
     private String fingerprint() {
         String id=Settings.Secure.getString(getContentResolver(),Settings.Secure.ANDROID_ID);
         if(id==null || id.length()<8) throw new IllegalStateException("设备指纹读取失败，请联系平台人员");
@@ -47,9 +59,10 @@ public final class TerminalEntryActivity extends Activity {
         if (!settingsHeld || destroyed || isFinishing()) return;
         settingsOpened = true; settingsHeld = false;
         try {
+            if(camera!=null)camera.stop();runtime.pauseCamera();
             startActivity(new Intent().setClassName(this, "com.example.settinglibrary.SettingActivity"));
         } catch (RuntimeException error) {
-            Toast.makeText(this, "百度配置页无法打开，请检查完整 Demo 模块", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "高级算法配置无法打开，请联系平台人员", Toast.LENGTH_LONG).show();
         }
     };
     private void cancelSettingsHold() {
@@ -95,9 +108,11 @@ public final class TerminalEntryActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        runtime=TerminalRuntime.get(this);runtime.attach(this);
+        speech=new TextToSpeech(this,code->{if(code==TextToSpeech.SUCCESS){int result=speech.setLanguage(Locale.SIMPLIFIED_CHINESE);speechReady=result>=0;}});
         PreferencesUtil.initPrefs(getApplicationContext());
         auth = new BdFaceAuth();
-        try { platform=new PlatformClient(savedOrigin()); }
+        try { TerminalEndpointPolicy.normalizeOrigin(savedOrigin()); }
         catch(IllegalArgumentException error) { showPlatformSettings();return; }
         showActivation();
         // Keep Demo cache keys so its model/recognition modules can reuse the same authorization.
@@ -111,6 +126,8 @@ public final class TerminalEntryActivity extends Activity {
     }
     private LinearLayout page(String title) {
         cancelSettingsHold();
+        if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
+        accountPage=false;
         pageVersion++;
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
@@ -119,7 +136,7 @@ public final class TerminalEntryActivity extends Activity {
         TextView brand=new TextView(this);brand.setText("一卡通景区刷脸核验端");brand.setTextSize(13);brand.setTextColor(Color.rgb(100,117,108));LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);
         top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         Button settings=new Button(this);settings.setText("设置");settings.setAllCaps(false);
-        settings.setTextColor(Color.rgb(22,96,76));settings.setContentDescription("设置，长按十秒打开百度配置");
+        settings.setTextColor(Color.rgb(22,96,76));settings.setContentDescription("设置，长按十秒打开高级算法配置");
         top.addView(settings,new LinearLayout.LayoutParams(dp(80),dp(48)));root.addView(top);
         settings.setOnClickListener(v->{if(busy.get()){Toast.makeText(this,"设备授权处理中，请稍候",Toast.LENGTH_SHORT).show();return;}showPlatformSettings();});
         settingsTouch(settings);
@@ -146,27 +163,21 @@ public final class TerminalEntryActivity extends Activity {
         settings.setOnClickListener(v->{if(busy.get()){status.setText("设备授权处理中，请完成后再修改平台地址");return;}showPlatformSettings();});
     }
     private void showPlatformSettings() {
-        communicating=false;main.removeCallbacks(heartbeatTick);
         LinearLayout root=page("平台连接设置");
         EditText address=new EditText(this);styleInput(address,"例如：https://您的接口域名");
         address.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);address.setText(savedOrigin());root.addView(address);
         Button save=new Button(this);save.setText("保存平台地址");styleButton(save);root.addView(save);
-        status.setText("填写平台 API 的 HTTPS 地址，修改后需要重新登录；设备授权保留。");
+        status.setText(runtime.hasSession()?"当前账号尚未退出。请返回设备状态，完成同步与回执后再修改平台地址。":"填写平台 API 的 HTTPS 地址，设备授权保持不变。");
+        save.setEnabled(!runtime.hasSession());address.setEnabled(!runtime.hasSession());
         save.setOnClickListener(v->{
-            final String origin;
-            try { origin=TerminalEndpointPolicy.normalizeOrigin(address.getText().toString()); }
-            catch(IllegalArgumentException error) {status.setText(error.getMessage());return;}
-            final PlatformClient next=new PlatformClient(origin),previous=platform;
-            final int version=pageVersion;save.setEnabled(false);status.setText("正在保存并退出旧平台会话");
-            network.execute(()->{if(previous!=null)previous.logout();main.post(()->{
-                if(destroyed||version!=pageVersion)return;
-                if(!getSharedPreferences("terminal_connection",MODE_PRIVATE).edit().putString("platformOrigin",origin).commit()) {
-                    save.setEnabled(true);status.setText("平台地址保存失败，请重试");return;
-                }
-                platform=next;
-                if(authorized)showLogin();else{showActivation();String license=PreferencesUtil.getString("activate_online_key","");if(!license.isEmpty())verify(license);}
-            });});
+            if(runtime.hasSession()){status.setText("请先完成原账号同步退出");return;}
+            try {
+                String origin=TerminalEndpointPolicy.normalizeOrigin(address.getText().toString());
+                if(!getSharedPreferences("terminal_connection",MODE_PRIVATE).edit().putString("platformOrigin",origin).commit())throw new IllegalStateException("平台地址保存失败，请重试");
+                if(authorized)showLogin();else showActivation();
+            }catch(IllegalArgumentException|IllegalStateException error){status.setText(error.getMessage());}
         });
+        Button back=new Button(this);back.setText("返回");styleButton(back);root.addView(back);back.setOnClickListener(v->{if(authorized){if(runtime.hasSession())showAccount();else showLogin();}else showActivation();});
     }
     private void showActivation() {
         LinearLayout root = page("设备激活");
@@ -193,8 +204,8 @@ public final class TerminalEntryActivity extends Activity {
                 main.removeCallbacks(timeout); busy.set(false);
                 if (error == 0) {
                     PreferencesUtil.putString("activate_online_key",code);
-                    authorized = true;
-                    showLogin();
+                    authorized = true;runtime.authorize();
+                    if(runtime.hasSession())showAccount();else showLogin();
                 } else {
                     activate.setEnabled(true); status.setText(explain(error));
                 }
@@ -228,53 +239,62 @@ public final class TerminalEntryActivity extends Activity {
             final String name=user.getText().toString().trim(),secret=password.getText().toString();
             if(name.isEmpty()||secret.isEmpty()){status.setText("请输入账号和密码");return;}
             login.setEnabled(false);status.setText("正在验证账号");
-            network.execute(()->{try{
-                JSONObject result=platform.request("/api/terminal/login",new JSONObject().put("username",name).put("password",secret));
-                platform.token(result.getString("accessToken"));
-                JSONObject binding=platform.request("/api/terminal/bind",new JSONObject()
-                    .put("fingerprint",fingerprint())
-                    .put("appVersion","0.2.0-binding"));
-                main.post(()->{if(destroyed||version!=pageVersion)return;password.setText("");showAccount(result,binding);});
-            }catch(Exception error){platform.logout();main.post(()->{if(destroyed||version!=pageVersion)return;login.setEnabled(true);status.setText(error.getMessage());});}});
+            runtime.login(savedOrigin(),fingerprint(),name,secret,error->{
+                if(destroyed||version!=pageVersion)return;
+                if(error!=null){login.setEnabled(true);status.setText(error);return;}
+                password.setText("");showAccount();
+            });
         });
+        if(runtime.hasSession()){
+            Button back=new Button(this);back.setText("返回原账号同步");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());
+            status.setText("原会话尚未退出，只能重新登录原账号；切换账号请返回完成同步退出。");
+        }
     }
-    private void showAccount(JSONObject info,JSONObject binding) {
-        LinearLayout root=page("设备状态");
-        bindingGeneration=binding.optLong("generation");
-        communicating=true;
-        status.setText("设备："+binding.optString("deviceName")+"\n账号："+info.optString("username")+
-            "\n设备已激活并绑定，正在连接平台\n人员同步与正式刷脸核验待开通");
-        Button logout=new Button(this);logout.setText("退出账号");styleButton(logout);root.addView(logout);
-        logout.setOnClickListener(v->{communicating=false;main.removeCallbacks(heartbeatTick);logout.setEnabled(false);
-            network.execute(()->{platform.logout();main.post(()->{if(!destroyed)showLogin();});});});
-        connectionButton(root);
-        main.removeCallbacks(heartbeatTick);main.post(heartbeatTick);
-    }
-    private void sendHeartbeat() {
-        if(destroyed || !communicating) return;
-        final int version=pageVersion;
-        final long generation=bindingGeneration;
-        network.execute(()->{
-            String text;
-            try {
-                JSONObject reply=platform.request("/api/terminal/heartbeat",new JSONObject()
-                    .put("fingerprint",fingerprint()).put("generation",generation)
-                    .put("appVersion","0.2.0-binding").put("sdkStatus",authorized?"AUTHORIZED":"UNAUTHORIZED"));
-                text="设备已绑定 · 平台通信正常\n算法授权："+(authorized?"已授权":"未授权")+
-                    "\n平台时间："+reply.optString("serverTime")+"\n人员同步与正式刷脸核验待开通";
-            } catch(Exception error) {
-                text="平台通信异常："+error.getMessage()+"\n将在30秒后重试；暂不可扫脸通行";
-            }
-            final String value=text;
-            main.post(()->{if(destroyed || !communicating || version!=pageVersion)return;
-                status.setText(value);main.postDelayed(heartbeatTick,30000);});
+    private void showAccount() {
+        LinearLayout root=page("设备状态");accountPage=true;status.setText(lastState);
+        TextureView preview=new TextureView(this);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(280)));
+        resultView=new TextView(this);resultView.setText("请先开始核验");resultView.setTextSize(23);resultView.setPadding(0,dp(16),0,dp(16));root.addView(resultView);
+        camera=new TerminalCamera(this,runtime,preview,text->{status.setText(text);startButton.setText("开始核验");});
+        startButton=new Button(this);startButton.setText("开始核验");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
+        startButton.setOnClickListener(v->{
+            if("暂停核验".contentEquals(startButton.getText())){camera.stop();startButton.setText("开始核验");resultView.setText("已暂停核验");return;}
+            if(Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.CAMERA},200);return;}
+            startScanning();
         });
+        Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
+        Button sync=new Button(this);sync.setText("立即同步 / 重试回执");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->runtime.retry());
+        Button loginAgain=new Button(this);loginAgain.setText("重新验证原账号");styleButton(loginAgain);root.addView(loginAgain);loginAgain.setOnClickListener(v->showLogin());
+        Button logout=new Button(this);logout.setText("同步完成后退出账号");styleButton(logout);root.addView(logout);
+        logout.setOnClickListener(v->{camera.stop();logout.setEnabled(false);status.setText("已暂停核验，正在排空记录、人员任务和回执");
+            runtime.exit(error->{if(destroyed)return;if(error==null){if(!runtime.hasSession())showLogin();}else {if(accountPage){status.setText(error);logout.setEnabled(true);}}});
+        });
+        connectionButton(root);runtime.retry();
+    }
+    private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");return;}if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){super.onRequestPermissionsResult(request,permissions,grants);if(request==200&&accountPage){if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startScanning();else status.setText("未授予相机权限，请在手机设置中允许后重试");}}
+    private void showStatistics(){
+        LinearLayout root=page("景区入园统计");int version=pageVersion;
+        Calendar today=Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));SimpleDateFormat fmt=new SimpleDateFormat("yyyy-MM-dd",Locale.US);fmt.setTimeZone(today.getTimeZone());
+        Button from=new Button(this),to=new Button(this);from.setText(fmt.format(today.getTime()));to.setText(fmt.format(today.getTime()));styleButton(from);styleButton(to);root.addView(from);root.addView(to);
+        android.view.View.OnClickListener date=v->{Button button=(Button)v;String[] parts=button.getText().toString().split("-");DatePickerDialog dialog=new DatePickerDialog(this,(picker,y,m,d)->button.setText(String.format(Locale.US,"%04d-%02d-%02d",y,m+1,d)),Integer.parseInt(parts[0]),Integer.parseInt(parts[1])-1,Integer.parseInt(parts[2]));dialog.getDatePicker().setMaxDate(System.currentTimeMillis());dialog.show();};
+        from.setOnClickListener(date);to.setOnClickListener(date);
+        Button query=new Button(this);query.setText("查询人数");styleButton(query);root.addView(query);TextView results=new TextView(this);results.setTextSize(17);results.setPadding(0,dp(20),0,dp(20));root.addView(results);
+        query.setOnClickListener(v->{query.setEnabled(false);runtime.statistics(from.getText().toString(),to.getText().toString(),(data,error)->{if(destroyed||version!=pageVersion)return;query.setEnabled(true);if(error!=null){status.setText(error);return;}status.setText(data.optString("countingDescription"));StringBuilder text=new StringBuilder("每日去重人数合计："+data.optLong("totalDailyPeople")+" 人\n\n");JSONArray items=data.optJSONArray("items");if(items!=null)for(int i=0;i<items.length();i++){JSONObject row=items.optJSONObject(i);if(row!=null)text.append(row.optString("date")).append(" · ").append(row.optString("scenicName")).append("：").append(row.optLong("people")).append(" 人\n");}results.setText(text);});});
+        Button back=new Button(this);back.setText("返回设备状态");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());query.performClick();
+    }
+    @Override public void status(String text,boolean ready,boolean hasSession){
+        if(destroyed)return;lastState=text;if(!accountPage)return;status.setText(text);if(startButton!=null)startButton.setEnabled(ready||"暂停核验".contentEquals(startButton.getText()));if(!hasSession&&authorized)showLogin();
+    }
+    @Override public void result(String text,String voice,boolean open){
+        if(destroyed||!accountPage||resultView==null)return;resultView.setText(text);resultView.setTextColor(open?Color.rgb(22,120,60):Color.rgb(180,45,30));
+        if(speechReady&&!voice.isEmpty())speech.speak(voice,TextToSpeech.QUEUE_FLUSH,null,"terminal-result");
     }
     @Override protected void onPause() {
-        cancelSettingsHold(); super.onPause();
+        cancelSettingsHold();if(camera!=null)camera.stop();runtime.pauseCamera();if(startButton!=null)startButton.setText("开始核验");super.onPause();
     }
     @Override protected void onDestroy() {
         cancelSettingsHold();
-        destroyed = true; communicating=false; pageVersion++; main.removeCallbacks(heartbeatTick); main.removeCallbacks(timeout); network.shutdownNow(); super.onDestroy();
+        destroyed=true;pageVersion++;main.removeCallbacks(timeout);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
     }
 }
+

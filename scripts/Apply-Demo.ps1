@@ -17,6 +17,8 @@ $xml = New-Object System.Xml.XmlDocument
 $xml.Load($path)
 $android = 'http://schemas.android.com/apk/res/android'
 $app = $xml.manifest.application
+[void]$app.SetAttribute('allowBackup',$android,'false')
+[void]$app.SetAttribute('fullBackupContent',$android,'false')
 # Keep the SDK's fingerprint component, but remove public entry into Demo maintenance screens.
 foreach($activity in @($app.SelectNodes('activity'))) {
  $name = $activity.GetAttribute('name',$android)
@@ -44,4 +46,5 @@ if($null -eq $entry) {
 [void]$entry.SetAttribute('exported',$android,'true')
 $xml.Save($path)
 Write-Host 'Demo overlay applied: real online activation, guarded terminal entry, private Demo screens.'
-Write-Host 'Password-only login, device binding and heartbeat are implemented. Face sync and admission are pending.'
+Write-Host 'Session V2: SDK face sync, durable events, receipt confirmation and guarded account exit. Validate on the real phone before operational use.'
+

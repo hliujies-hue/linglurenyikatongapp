@@ -17,7 +17,8 @@ try {
  }
  Move-Item -LiteralPath $work -Destination $destination
  Write-Host ('Full original Demo imported to: ' + $destination)
- Write-Host 'Do not build or activate this original Demo yet: it still contains vendor package settings and sample signing. Application changes and signing migration are pending.'
+ Write-Host 'Keep this original Demo unchanged. Prepare demo-work, then run Build-Demo.ps1 to apply maintained application code and your release signing.'
 } finally {
  if(Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 }
+

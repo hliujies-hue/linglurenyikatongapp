@@ -1,4 +1,4 @@
-param([string]$Serial = '', [switch]$Install)
+param([string]$Serial = '', [switch]$Install, [switch]$VerifyJournal)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
@@ -27,4 +27,20 @@ Start-Sleep -Seconds 5
 $processId = (& $adb -s $Serial shell pidof $package | Out-String).Trim()
 if(-not $processId) { throw 'Terminal process exited; inspect Android Studio Logcat' }
 Write-Host "PASS: installed terminal launched and process remains alive (PID $processId)."
-Write-Host 'On phone: activate, login with bound staff account, confirm device binding and platform heartbeat. This smoke test does not certify face matching or admission.'
+if($VerifyJournal) {
+ if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.exe'))) {
+  $candidate=Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
+  if(-not (Test-Path (Join-Path $candidate 'bin\javac.exe'))) { throw 'Set JAVA_HOME to JDK 17 before device journal tests' }
+  $env:JAVA_HOME=$candidate
+ }
+ $env:PATH=(Join-Path $env:JAVA_HOME 'bin')+';'+$env:PATH
+ $previousSerial=$env:ANDROID_SERIAL
+ $env:ANDROID_SERIAL=$Serial
+ Push-Location (Join-Path $root 'demo-work')
+ try {
+  & .\gradlew.bat --no-daemon :app:connectedReleaseAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.lingluren.yikatong.terminal.TerminalStoreInstrumentedTest'
+  if($LASTEXITCODE -ne 0) { throw 'Device journal tests failed' }
+ } finally { Pop-Location; $env:ANDROID_SERIAL=$previousSerial }
+}
+Write-Host 'On phone: activate, login with a scenic child account, wait for sync, then check real face/liveness, rejection, network recovery and sync-before-switch. Launch/journal tests do not certify face matching.'
+

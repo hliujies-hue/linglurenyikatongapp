@@ -6,13 +6,16 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 29
+    useLibrary 'android.test.runner', false
+    useLibrary 'android.test.base', false
 //    buildToolsVersion "33.0.1"
     defaultConfig {
         applicationId "com.lingluren.yikatong.terminal"
+        testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 100
-        versionName "0.1.0-demo-dev"
+        versionCode 103
+        versionName "0.3.0-session-v2"
         multiDexEnabled true
 
         ndk {
@@ -36,6 +39,7 @@ android {
             }
         }
     }
+    testBuildType "release"
     buildTypes {
         debug {
             minifyEnabled false
@@ -89,3 +93,4 @@ gradle.taskGraph.whenReady { graph ->
   throw new GradleException('Release signing.properties missing; do not use Demo sample signing.')
  }
 }
+

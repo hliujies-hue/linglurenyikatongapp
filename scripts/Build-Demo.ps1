@@ -50,5 +50,6 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
  Get-FileHash -LiteralPath $apk -Algorithm SHA256
  Write-Host ('APK: '+$apk)
- Write-Host 'Device login, binding and heartbeat build. Deploy matching platform version first. Face synchronization and admission remain pending.'
+ Write-Host 'Session V2 APK built. Deploy matching platform first; complete real-phone activation, sync, admission, restart, offline retry and account-switch checks.'
 } finally { Pop-Location }
+

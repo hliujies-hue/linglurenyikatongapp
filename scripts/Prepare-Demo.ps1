@@ -29,5 +29,6 @@ try {
  Move-Item -LiteralPath $work -Destination $destination
  Write-Host ('Demo working copy prepared: ' + $destination)
  Write-Host 'Application ID changed; original Demo modules retained; sample release signing removed.'
- Write-Host 'Activation/login UI and platform integration still pending. Do not activate or use for admission.'
+ Write-Host 'Working copy prepared. Run Build-Demo.ps1 to apply maintained Session V2 code and build with your existing release signing; validate on the real phone.'
 } finally { if(Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force } }
+
