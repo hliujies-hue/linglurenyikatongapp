@@ -2,6 +2,9 @@ package com.lingluren.yikatong.terminal;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -37,6 +40,47 @@ public final class TerminalEntryActivity extends Activity {
         if(id==null || id.length()<8) throw new IllegalStateException("设备指纹读取失败，请联系平台人员");
         return getPackageName()+":"+id;
     }
+    private boolean settingsHeld, settingsOpened;
+    private float settingsDownX, settingsDownY;
+    private final Runnable openBaiduSettings = () -> {
+        if (!settingsHeld || destroyed || isFinishing()) return;
+        settingsOpened = true; settingsHeld = false;
+        try {
+            startActivity(new Intent().setClassName(this, "com.example.settinglibrary.SettingActivity"));
+        } catch (RuntimeException error) {
+            Toast.makeText(this, "百度配置页无法打开，请检查完整 Demo 模块", Toast.LENGTH_LONG).show();
+        }
+    };
+    private void cancelSettingsHold() {
+        settingsHeld = false; main.removeCallbacks(openBaiduSettings);
+    }
+    private void settingsTouch(Button button) {
+        button.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    cancelSettingsHold(); settingsOpened = false; settingsHeld = true;
+                    settingsDownX = event.getX(); settingsDownY = event.getY();
+                    view.setPressed(true); view.getParent().requestDisallowInterceptTouchEvent(true);
+                    main.postDelayed(openBaiduSettings, 10000L); return true;
+                case MotionEvent.ACTION_MOVE:
+                    int slop = ViewConfiguration.get(this).getScaledTouchSlop();
+                    if (Math.abs(event.getX()-settingsDownX)>slop || Math.abs(event.getY()-settingsDownY)>slop) {
+                        cancelSettingsHold(); view.setPressed(false);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    boolean click = settingsHeld && !settingsOpened;
+                    cancelSettingsHold(); view.setPressed(false);
+                    view.getParent().requestDisallowInterceptTouchEvent(false);
+                    if (click) view.performClick(); return true;
+                case MotionEvent.ACTION_CANCEL:
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    cancelSettingsHold(); view.setPressed(false);
+                    view.getParent().requestDisallowInterceptTouchEvent(false); return true;
+                default: return true;
+            }
+        });
+    }
     private TextView status;
     private Button activate;
     private BdFaceAuth auth;
@@ -66,12 +110,19 @@ public final class TerminalEntryActivity extends Activity {
         if(border != 0) shape.setStroke(dp(1),border); return shape;
     }
     private LinearLayout page(String title) {
+        cancelSettingsHold();
         pageVersion++;
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(24),dp(36),dp(24),dp(24));
         root.setBackgroundColor(Color.rgb(244,246,240));scroll.addView(root);setContentView(scroll);
-        TextView brand=new TextView(this);brand.setText("一卡通景区刷脸核验端");brand.setTextSize(13);brand.setTextColor(Color.rgb(100,117,108));root.addView(brand);
+        TextView brand=new TextView(this);brand.setText("一卡通景区刷脸核验端");brand.setTextSize(13);brand.setTextColor(Color.rgb(100,117,108));LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);
+        top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
+        Button settings=new Button(this);settings.setText("设置");settings.setAllCaps(false);
+        settings.setTextColor(Color.rgb(22,96,76));settings.setContentDescription("设置，长按十秒打开百度配置");
+        top.addView(settings,new LinearLayout.LayoutParams(dp(80),dp(48)));root.addView(top);
+        settings.setOnClickListener(v->{if(busy.get()){Toast.makeText(this,"设备授权处理中，请稍候",Toast.LENGTH_SHORT).show();return;}showPlatformSettings();});
+        settingsTouch(settings);
         TextView heading=new TextView(this);heading.setText(title);heading.setTextSize(26);heading.setTextColor(Color.rgb(22,96,76));heading.setPadding(0,dp(14),0,dp(12));root.addView(heading);
         status=new TextView(this);status.setTextSize(14);status.setTextColor(Color.rgb(70,90,79));status.setPadding(0,0,0,dp(16));root.addView(status);
         return root;
@@ -220,7 +271,11 @@ public final class TerminalEntryActivity extends Activity {
                 status.setText(value);main.postDelayed(heartbeatTick,30000);});
         });
     }
+    @Override protected void onPause() {
+        cancelSettingsHold(); super.onPause();
+    }
     @Override protected void onDestroy() {
+        cancelSettingsHold();
         destroyed = true; communicating=false; pageVersion++; main.removeCallbacks(heartbeatTick); main.removeCallbacks(timeout); network.shutdownNow(); super.onDestroy();
     }
 }
