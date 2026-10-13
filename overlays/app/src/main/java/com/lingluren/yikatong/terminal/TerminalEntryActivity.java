@@ -233,7 +233,6 @@ public final class TerminalEntryActivity extends Activity {
                 platform.token(result.getString("accessToken"));
                 JSONObject binding=platform.request("/api/terminal/bind",new JSONObject()
                     .put("fingerprint",fingerprint())
-                    .put("license",PreferencesUtil.getString("activate_online_key",""))
                     .put("appVersion","0.2.0-binding"));
                 main.post(()->{if(destroyed||version!=pageVersion)return;password.setText("");showAccount(result,binding);});
             }catch(Exception error){platform.logout();main.post(()->{if(destroyed||version!=pageVersion)return;login.setEnabled(true);status.setText(error.getMessage());});}});
