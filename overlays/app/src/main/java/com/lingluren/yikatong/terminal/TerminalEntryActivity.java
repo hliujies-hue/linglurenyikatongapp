@@ -40,6 +40,7 @@ public final class TerminalEntryActivity extends Activity {
         if(id==null || id.length()<8) throw new IllegalStateException("设备指纹读取失败，请联系平台人员");
         return getPackageName()+":"+id;
     }
+    private boolean destroyed;
     private boolean settingsHeld, settingsOpened;
     private float settingsDownX, settingsDownY;
     private final Runnable openBaiduSettings = () -> {
@@ -85,7 +86,6 @@ public final class TerminalEntryActivity extends Activity {
     private Button activate;
     private BdFaceAuth auth;
     private volatile boolean authorized;
-    private boolean destroyed;
     private final Runnable timeout = () -> {
         if (busy.get()) {
             status.setText("验证时间较长，请检查网络；完成前请勿重复激活");
