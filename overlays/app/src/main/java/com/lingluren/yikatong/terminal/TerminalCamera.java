@@ -12,7 +12,7 @@ import com.example.datalibrary.threshold.SingleBaseConfig;
 public final class TerminalCamera implements TextureView.SurfaceTextureListener {
     public interface Error {void show(String text);}
     private final Activity activity;private final TerminalRuntime runtime;private final TextureView view;private final Error error;
-    private Camera camera;private boolean wanted;private int rotation;
+    private Camera camera;private boolean wanted;private int rotation,bufferWidth,bufferHeight;
     public TerminalCamera(Activity activity,TerminalRuntime runtime,TextureView view,Error error){this.activity=activity;this.runtime=runtime;this.view=view;this.error=error;view.setSurfaceTextureListener(this);}
     public boolean start(){wanted=true;if(view.isAvailable())open(view.getSurfaceTexture());return wanted;}
     private void open(SurfaceTexture texture){
@@ -31,14 +31,22 @@ public final class TerminalCamera implements TextureView.SurfaceTextureListener 
             boolean front=info.facing==Camera.CameraInfo.CAMERA_FACING_FRONT;
             rotation=front?(info.orientation+degrees)%360:(info.orientation-degrees+360)%360;
             camera.setDisplayOrientation(front?(360-rotation)%360:rotation);camera.setPreviewTexture(texture);
-            Camera.Size actual=camera.getParameters().getPreviewSize();
+            Camera.Size actual=camera.getParameters().getPreviewSize();bufferWidth=actual.width;bufferHeight=actual.height;fitPreview();
             camera.setErrorCallback((code,c)->{stop();error.show("摄像头异常（"+code+"），请重试");});
             camera.setPreviewCallback((data,c)->{if(wanted)runtime.frame(data,actual.width,actual.height,rotation);});camera.startPreview();
         }catch(Exception e){stop();error.show("摄像头无法打开，请检查相机权限或关闭其他占用相机的应用");}
     }
+    private void fitPreview(){
+        if(view.getWidth()==0||view.getHeight()==0||bufferWidth==0||bufferHeight==0)return;
+        float source=(rotation==90||rotation==270)?(float)bufferHeight/bufferWidth:(float)bufferWidth/bufferHeight;
+        float target=(float)view.getWidth()/view.getHeight();
+        android.graphics.Matrix transform=new android.graphics.Matrix();
+        transform.setScale(source>target?source/target:1f,source<target?target/source:1f,view.getWidth()/2f,view.getHeight()/2f);
+        view.setTransform(transform);
+    }
     public void stop(){wanted=false;runtime.pauseCamera();if(camera!=null){Camera c=camera;camera=null;try{c.setPreviewCallback(null);c.stopPreview();}catch(RuntimeException ignored){}finally{c.release();}}}
     @Override public void onSurfaceTextureAvailable(SurfaceTexture surface,int width,int height){open(surface);}
-    @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface,int width,int height){}
+    @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface,int width,int height){fitPreview();}
     @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface){stop();return true;}
     @Override public void onSurfaceTextureUpdated(SurfaceTexture surface){}
 }

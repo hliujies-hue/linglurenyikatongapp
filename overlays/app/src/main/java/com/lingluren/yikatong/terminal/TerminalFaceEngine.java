@@ -107,7 +107,12 @@ public final class TerminalFaceEngine {
         try {
             FaceInfo[] faces=detect(image);
             if(faces==null||faces.length==0)return new Match(false,0,"");
-            if(faces.length!=1||!quality(faces[0]))return new Match(true,0,"NO_MATCH");
+            if(faces.length!=1)return new Match(true,0,"GUIDE_SINGLE_FACE");
+            FaceInfo f=faces[0];BaseConfig c=SingleBaseConfig.getBaseConfig();
+            if(Math.abs(f.yaw)>c.getGesture()||Math.abs(f.roll)>c.getGesture()||Math.abs(f.pitch)>c.getGesture())return new Match(true,0,"GUIDE_POSE");
+            if(f.bluriness>c.getBlur())return new Match(true,0,"GUIDE_BLUR");
+            if(f.illum<c.getIllumination())return new Match(true,0,"GUIDE_LIGHT");
+            if(!quality(f))return new Match(true,0,"GUIDE_OCCLUSION");
             // Always enforce RGB liveness; the generic Demo's disable switch cannot bypass admission.
             float threshold=SingleBaseConfig.getBaseConfig().getRgbLiveScore();
             if(!finite(threshold)||threshold<=0||threshold>1)throw new IllegalStateException("活体阈值无效");

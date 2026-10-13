@@ -39,6 +39,7 @@ public final class TerminalRuntime {
     private volatile long lastHeartbeat,pendingEvents;
     private volatile String overview="平台信息：等待同步";
     private String lastPhotoIssue="";
+    private long lastGuidance;
     private volatile String lastStatus="正在恢复设备状态";
     private JSONObject session,feedback=new JSONObject();
     private PlatformClient client;
@@ -108,7 +109,7 @@ public final class TerminalRuntime {
         long batchStarted=SystemClock.elapsedRealtime();
         for(int i=0;i<tasks.length()&&i<4;i++){
             if(i>0&&SystemClock.elapsedRealtime()-batchStarted>1500)break;
-            emit("正在同步人员，本批第"+(i+1)+"项；本地人员："+store.faces());
+            emit("正在同步人员，本批第"+(i+1)+"项；本地已保存特征："+store.faces());
             JSONObject task=tasks.getJSONObject(i),ack=TerminalProtocol.ref(session);
             ack.put("taskId",task.getLong("taskId")).put("receipt",task.getString("receipt")).put("targetHash",task.getString("targetHash")).put("grantGeneration",task.getLong("grantGeneration"));
             try {
@@ -165,10 +166,10 @@ public final class TerminalRuntime {
         overview="景区："+profile.optString("scenicName")+"\n设备："+profile.optString("deviceName")
             +"\n账号："+profile.optString("accountName")+" · 规则："+rule
             +"\n平台配置：已同步 · 人员清单："+(result.optBoolean("rosterReady")?"已生成":"生成中")
-            +"\n本地人员："+store.faces()+" · 待同步："+result.optLong("pendingPeople")+" · 待回执："+result.optLong("pendingReceipts")
+            +"\n本地已保存特征："+store.faces()+" · 待同步："+result.optLong("pendingPeople")+" · 待回执："+result.optLong("pendingReceipts")
             +"\n待确认入园记录："+pendingEvents+" · 照片待处理："+result.optLong("photoRejected")
             +"\nSDK："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
-            +"\n平台同步时间："+result.optString("serverTime")
+            +"\n平台状态更新时间："+result.optString("serverTime")
             +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
         emit(ready()?"信息与人员同步已完成，可以开始核验":"等待同步完成，暂不可开始核验");
     }
@@ -196,7 +197,7 @@ public final class TerminalRuntime {
             nextTick=SystemClock.elapsedRealtime()+TerminalSyncSchedule.delay(work,syncFailures,jitter.nextInt(5000));
         }
     }
-    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("同步重试已安排，正在处理原账号任务；记录会保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}
+    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("正在检查平台变更与待确认记录；本地人员库保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}
     public void exit(Done done){
         pauseCamera();ready=false;
         actor.execute(()->{try{
@@ -238,7 +239,13 @@ public final class TerminalRuntime {
         actor.execute(()->{try{
             if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.getString("state")))return;
             TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);long now=SystemClock.elapsedRealtime();
-            if(!match.present){gate.absent(now);return;}if(!gate.face(now))return;
+            if(!match.present){gate.absent(now);return;}
+            if(match.failure.startsWith("GUIDE_")){
+                boolean waiting=gate.observing();
+                if(waiting&&now-lastGuidance>800){lastGuidance=now;showResult(epoch,guidance(match.failure),"",false);}
+                return;
+            }
+            if(!gate.decision(match.user,match.failure,now))return;
             boolean online=ready()&&match.failure.isEmpty();
             String failure=!ready()?"NETWORK_UNAVAILABLE":match.failure.isEmpty()?"PLATFORM_TIMEOUT":match.failure;
             JSONObject event=store.event(match.user,failure),result=null;pendingEvents=store.pendingCount(session.getString("sessionId"));boolean saved=false;
@@ -255,6 +262,15 @@ public final class TerminalRuntime {
             }
         }catch(Exception|LinkageError e){ready=false;localFeedback(epoch,"sdk","设备尚未就绪，请联系工作人员");failure(e);}
         finally{frameQueued.set(false);}});
+    }
+    private static String guidance(String code){
+        switch(code){
+            case "GUIDE_SINGLE_FACE":return "请保持画面内只有一人";
+            case "GUIDE_POSE":return "请正对摄像头，调整手机至面部高度";
+            case "GUIDE_BLUR":return "请保持稳定，等待画面清晰";
+            case "GUIDE_LIGHT":return "光线不足，请移至明亮位置";
+            default:return "请露出完整五官，避免遮挡";
+        }
     }
     private void localFeedback(long epoch,String key,String fallback){JSONObject messages=feedback.optJSONObject("messages"),item=messages==null?null:messages.optJSONObject(key);showResult(epoch,item==null?fallback:item.optString("text",fallback),feedback.optBoolean("voiceEnabled",true)?(item==null?fallback:item.optString("speech")):"",false);}
     private void showResult(long epoch,String text,String speech,boolean open){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(text,speech,open);});}
