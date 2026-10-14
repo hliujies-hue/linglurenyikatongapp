@@ -76,4 +76,13 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
   store.getWritableDatabase().delete("events","session_id=?",new String[]{id});assertEquals(1,store.restoreRecords(archive,origin,fp));assertEquals(1,store.pendingCount(id));assertEquals(0,store.restoreRecords(archive,origin,fp));
   assertEquals(2,store.event(43,"NO_MATCH").getLong("sequence"));
  }
+ public void testFaceBatchUsesKeysetAndPreservesIdGaps() throws Exception {
+  int first=store.saveFace(10,"first",new byte[512]);
+  int deleted=store.saveFace(11,"removed",new byte[512]);
+  int last=store.saveFace(12,"last",new byte[512]);store.deleteFace(11);
+  try(android.database.Cursor rows=store.faceBatch(0,1)){assertTrue(rows.moveToNext());assertEquals(first,rows.getInt(0));assertEquals(512,rows.getBlob(1).length);assertFalse(rows.moveToNext());}
+  try(android.database.Cursor rows=store.faceBatch(first,128)){assertTrue(rows.moveToNext());assertEquals(last,rows.getInt(0));assertTrue(last>deleted);assertFalse(rows.moveToNext());}
+  try(android.database.Cursor rows=store.faceBatch(last,128)){assertFalse(rows.moveToNext());}
+  assertEquals(2L,store.faces());
+ }
 }

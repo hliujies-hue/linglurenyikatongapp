@@ -34,32 +34,46 @@ public final class TerminalFaceEngine {
     private final TerminalIndexLedger.NativeIndex nativeIndex=new TerminalIndexLedger.NativeIndex(){public int push(int id,byte[] f){return search.pushPersonById(id,f);}public int delete(int id){return search.delPersonById(id);}};
     public boolean ready(){return ready;}
     public interface Progress {void update(long loaded,long total,long elapsed);}
+    private TerminalIndexRestore restore;
+    private long restoreStarted;
+    public boolean loading(){return restore!=null&&!ready;}
+    public void invalidateLibrary(){ready=false;restore=null;}
     public void init(Context context,TerminalStore store,Progress progress) throws Exception {
-        if(ready)return;
-        detect=new FaceDetect();live=new FaceLive();feature=new FaceFeature();search=new FaceSearch();
-        applySettings();
-        await(cb->detect.initModel(context,GlobalSet.DETECT_VIS_MODEL,GlobalSet.ALIGN_RGB_MODEL,BDFaceSDKCommon.DetectType.DETECT_VIS,BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_ACCURATE,cb),"人脸检测模型加载");
-        await(cb->detect.initQuality(context,GlobalSet.BLUR_MODEL,GlobalSet.OCCLUSION_MODEL,cb),"质量检测模型加载");
-        await(cb->live.initModel(context,GlobalSet.LIVE_VIS_MODEL,"","","",GlobalSet.LIVE_NIR_MODEL,GlobalSet.LIVE_DEPTH_MODEL,cb),"活体模型加载");
-        await(cb->feature.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,GlobalSet.RECOGNIZE_NIR_MODEL,"",cb),"特征模型加载");
+        if(ready||loading())return;
+        if(search==null){
+            detect=new FaceDetect();live=new FaceLive();feature=new FaceFeature();search=new FaceSearch();
+            applySettings();
+            await(cb->detect.initModel(context,GlobalSet.DETECT_VIS_MODEL,GlobalSet.ALIGN_RGB_MODEL,BDFaceSDKCommon.DetectType.DETECT_VIS,BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_ACCURATE,cb),"人脸检测模型加载");
+            await(cb->detect.initQuality(context,GlobalSet.BLUR_MODEL,GlobalSet.OCCLUSION_MODEL,cb),"质量检测模型加载");
+            await(cb->live.initModel(context,GlobalSet.LIVE_VIS_MODEL,"","","",GlobalSet.LIVE_NIR_MODEL,GlobalSet.LIVE_DEPTH_MODEL,cb),"活体模型加载");
+            await(cb->feature.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,GlobalSet.RECOGNIZE_NIR_MODEL,"",cb),"特征模型加载");
+        }
         search.setNeedJoinDB(false);search.setMaxUpdateSize(0);
         check(search.featureClear(),"检索库清空");indexLedger.clear();
-        long total=store.faces(),loaded=0,started=android.os.SystemClock.elapsedRealtime(),last=started;
-        progress.update(0,total,0);
-        try(Cursor rows=store.allFaces()){while(rows.moveToNext()){
-            check(indexLedger.restore(nativeIndex,rows.getInt(0),rows.getBlob(1)),"检索库恢复");loaded++;
-            long now=android.os.SystemClock.elapsedRealtime();
-            if(now-last>=500){progress.update(loaded,total,now-started);last=now;}
-        }}
-        progress.update(loaded,total,android.os.SystemClock.elapsedRealtime()-started);
-        ready=true;
+        restore=new TerminalIndexRestore(store.faces(),TerminalSdkContract.FEATURE_BYTES);
+        restoreStarted=android.os.SystemClock.elapsedRealtime();progress.update(0,restore.total(),0);
+    }
+    public void restoreBatch(TerminalStore store,Progress progress){
+        if(restore==null||ready)return;
+        restore.step((id,limit)->{
+            final Cursor cursor=store.faceBatch(id,limit);
+            return new TerminalIndexRestore.Rows(){
+                public boolean next(){return cursor.moveToNext();}
+                public int id(){return cursor.getInt(0);}
+                public byte[] feature(){return cursor.getBlob(1);}
+                public void close(){cursor.close();}
+            };
+        },(id,bytes)->indexLedger.restore(nativeIndex,id,bytes),android.os.SystemClock::elapsedRealtime,128,40);
+        progress.update(restore.loaded(),restore.total(),android.os.SystemClock.elapsedRealtime()-restoreStarted);
+        ready=restore.done();
+        if(ready)restore=null;
     }
     public void applySettings(){
         BaseConfig c=SingleBaseConfig.getBaseConfig();
         BDFaceSDKConfig config=new BDFaceSDKConfig();config.maxDetectNum=2;config.minFaceSize=c.getMinimumFace();config.notRGBFaceThreshold=c.getFaceThreshold();
         config.isCheckBlur=true;config.isOcclusion=true;config.isIllumination=true;config.isHeadPose=true;detect.loadConfig(config);
     }
-    private void check(int code,String operation){if(code!=0){ready=false;throw new IllegalStateException(operation+"失败（"+code+"），禁止确认人员任务");}}
+    private void check(int code,String operation){if(code!=0){ready=false;restore=null;throw new IllegalStateException(operation+"失败（"+code+"），禁止确认人员任务");}}
     private static boolean finite(float n){return !Float.isNaN(n)&&!Float.isInfinite(n);}
     private void require(){if(!ready)throw new IllegalStateException("算法尚未就绪");}
     public void reset(TerminalStore store){require();check(search.featureClear(),"检索库重置");indexLedger.clear();store.clearFaces();}

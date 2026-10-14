@@ -124,7 +124,10 @@ public final class TerminalStore extends SQLiteOpenHelper {
     public void metadata(String name,String value,boolean write){ContentValues v=new ContentValues();v.put("name",name);v.put("value",value);getWritableDatabase().insertWithOnConflict("metadata",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
     public void clearFaces(){getWritableDatabase().delete("faces",null,null);}
     public long faces(){return DatabaseUtils.queryNumEntries(getReadableDatabase(),"faces");}
-    public Cursor allFaces(){return getReadableDatabase().rawQuery("SELECT local_id,feature FROM faces ORDER BY local_id",null);}
+    public Cursor faceBatch(int afterId,int limit){
+        if(afterId<0||limit<1||limit>128)throw new IllegalArgumentException("无效的人员加载批次");
+        return getReadableDatabase().rawQuery("SELECT local_id,feature FROM faces WHERE local_id>? ORDER BY local_id LIMIT ?",new String[]{String.valueOf(afterId),String.valueOf(limit)});
+    }
     public int faceId(long user){try(Cursor c=getReadableDatabase().rawQuery("SELECT local_id FROM faces WHERE user_id=?",new String[]{Long.toString(user)})){return c.moveToFirst()?c.getInt(0):0;}}
     public long userForFace(int id){try(Cursor c=getReadableDatabase().rawQuery("SELECT user_id FROM faces WHERE local_id=?",new String[]{Integer.toString(id)})){return c.moveToFirst()?c.getLong(0):0;}}
     public int saveFace(long user,String hash,byte[] feature){

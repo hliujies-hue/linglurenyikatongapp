@@ -22,7 +22,9 @@ try {
  $backup = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalBackupCrypto.java'
  $messages = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalMessages.java'
  $backupTest = Join-Path $root 'tests\java\TerminalBackupCryptoTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest
+ $restore = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalIndexRestore.java'
+ $restoreTest = Join-Path $root 'tests\java\TerminalIndexRestoreTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest $restore $restoreTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
@@ -42,5 +44,7 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'Native feature replay tests failed' }
  & java -cp $out com.lingluren.yikatong.terminal.TerminalBackupCryptoTest
  if($LASTEXITCODE -ne 0) { throw 'Encrypted record backup tests failed' }
+ & java -cp $out com.lingluren.yikatong.terminal.TerminalIndexRestoreTest
+ if($LASTEXITCODE -ne 0) { throw 'Batched feature restore tests failed' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

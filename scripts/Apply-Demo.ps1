@@ -24,6 +24,23 @@ $xml = New-Object System.Xml.XmlDocument
 $xml.Load($path)
 $android = 'http://schemas.android.com/apk/res/android'
 $app = $xml.manifest.application
+# Android 11+ hides TTS services unless explicitly declared (targetSdk 31).
+$queries = $xml.manifest.SelectSingleNode('queries')
+if($null -eq $queries) {
+ $queries = $xml.CreateElement('queries')
+ [void]$xml.manifest.InsertBefore($queries,$app)
+}
+$hasTtsQuery = $false
+foreach($queryAction in @($queries.SelectNodes('intent/action'))) {
+ if($queryAction.GetAttribute('name',$android) -eq 'android.intent.action.TTS_SERVICE') { $hasTtsQuery = $true }
+}
+if(-not $hasTtsQuery) {
+ $ttsIntent = $xml.CreateElement('intent')
+ $ttsAction = $xml.CreateElement('action')
+ [void]$ttsAction.SetAttribute('name',$android,'android.intent.action.TTS_SERVICE')
+ [void]$ttsIntent.AppendChild($ttsAction)
+ [void]$queries.AppendChild($ttsIntent)
+}
 [void]$app.SetAttribute('name',$android,'com.lingluren.yikatong.terminal.TerminalApplication')
 [void]$app.SetAttribute('allowBackup',$android,'false')
 [void]$app.SetAttribute('fullBackupContent',$android,'false')
