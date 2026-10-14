@@ -41,7 +41,13 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private TerminalRuntime runtime;
     private TerminalCamera camera;
     private TextToSpeech speech;
-    private boolean speechReady, accountPage;
+    private boolean speechReady, accountPage, scanPage, resultPage;
+
+    private final int BLUE=0xff187cff, INK=0xff102139, MUTED=0xff788aa7;
+    private android.graphics.Bitmap landscape;
+    private TextView loadText, syncDetail, homeAccount;
+    private TextView[] homeChips;
+    private TerminalProgressView loadRing;
     private boolean startAfterPermission;
     private Button startButton;
     private TextView resultView,diagnosticView;
@@ -55,21 +61,21 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private boolean destroyed, foreground;
     private boolean baiduSettingsOpen;
-    private TextView overviewView,homeSummary;
+
     private void openBaiduSettings(){
-        if(baiduSettingsOpen||busy.get())return;
+        if(baiduSettingsOpen||busy.get()){Toast.makeText(this,"正在处理，请稍候",Toast.LENGTH_SHORT).show();return;}
         if(camera!=null)camera.stop();runtime.pauseCamera();
         final EditText password=new EditText(this);password.setSingleLine();password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);password.setHint("请输入管理员设置密码");
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(24),dp(12),dp(24),0);box.addView(password);
         android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this).setTitle("管理员设置").setMessage("由后台独立配置密码，验证后进入百度原生参数设置。需要联网，每次进入重新验证。").setView(box).setPositiveButton("验证并进入",null).setNegativeButton("取消",null).create();
         dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{
             final String secret=password.getText().toString();if(secret.isEmpty()){password.setError("请输入密码");return;}
-            dialog.getButton(-1).setEnabled(false);
+            dialog.getButton(-1).setEnabled(false);dialog.getButton(-1).setText("正在验证…");
             adminWorker.execute(()->{String error=null;try{
                 JSONObject reply=new PlatformClient(savedOrigin()).request("/api/terminal/admin-settings/unlock",new JSONObject().put("password",secret));
                 if(!reply.optBoolean("verified"))throw new IllegalStateException("管理员设置验证未通过");
             }catch(Exception e){error=e.getMessage()==null?"管理员设置验证失败":e.getMessage();}
-            final String problem=error;main.post(()->{if(destroyed||!dialog.isShowing())return;if(!foreground){dialog.dismiss();return;}dialog.getButton(-1).setEnabled(true);password.setText("");if(problem!=null){password.setError(problem);return;}dialog.dismiss();enterBaiduSettings();});
+            final String problem=error;main.post(()->{if(destroyed||!dialog.isShowing())return;if(!foreground){dialog.dismiss();return;}dialog.getButton(-1).setEnabled(true);dialog.getButton(-1).setText("验证并进入");password.setText("");if(problem!=null){password.setError(problem);return;}dialog.dismiss();enterBaiduSettings();});
             });
         }));dialog.show();
     }
@@ -78,10 +84,10 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(baiduSettingsOpen)return;
         if(camera!=null)camera.stop();
         baiduSettingsOpen=true;
-        status.setText("正在暂停核验并打开百度内置设置");
+        status.setText("密码验证成功，正在等待算法释放后打开设置…");Toast.makeText(this,"密码验证成功，正在打开管理员设置；本地库加载中可能需要等待",Toast.LENGTH_LONG).show();
         runtime.beginSettings(error->{
             if(destroyed||!foreground){baiduSettingsOpen=false;runtime.endSettings();return;}
-            if(error!=null){baiduSettingsOpen=false;status.setText(error);return;}
+            if(error!=null){baiduSettingsOpen=false;status.setText(error);new android.app.AlertDialog.Builder(this).setTitle("管理员设置未打开").setMessage(error).setPositiveButton("知道了",null).show();return;}
             try{
                 TerminalApplication.unlock();
                 Toast.makeText(this,"原生参数设置：当前业务使用RGB活体，红外/深度需专用硬件与接入；返回后手动开始核验",Toast.LENGTH_LONG).show();
@@ -123,32 +129,33 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(12));
         if(border != 0) shape.setStroke(dp(1),border); return shape;
     }
-    private LinearLayout page(String title) {
+    private android.graphics.drawable.Drawable artwork(){
+        try{if(landscape==null)try(java.io.InputStream in=getAssets().open("terminal-landscape.png")){android.graphics.BitmapFactory.Options opt=new android.graphics.BitmapFactory.Options();opt.inSampleSize=2;landscape=android.graphics.BitmapFactory.decodeStream(in,null,opt);}return new android.graphics.drawable.BitmapDrawable(getResources(),landscape);}catch(Exception e){return new TerminalHeaderDrawable();}
+    }
+    private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);return t;}
+    private LinearLayout card(LinearLayout parent){LinearLayout box=new LinearLayout(this);box.setOrientation(1);box.setPadding(dp(16),dp(16),dp(16),dp(16));box.setBackground(background(Color.WHITE,0));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(12);parent.addView(box,lp);return box;}
+    private void label(LinearLayout box,String value){TextView t=text(value,17,INK);t.setTypeface(null,1);t.setPadding(0,0,0,dp(12));box.addView(t);}
+    private Button action(LinearLayout box,String value,Runnable click,boolean primary){Button button=new Button(this);button.setText(value);styleButton(button);if(!primary){button.setTextColor(BLUE);button.setBackground(background(Color.WHITE,0xffc6dcff));}box.addView(button);button.setOnClickListener(v->click.run());return button;}
+    private void menu(LinearLayout box,String title,Runnable click){TextView link=text(title+"  ›",16,INK);link.setPadding(0,dp(17),0,dp(17));box.addView(link,new LinearLayout.LayoutParams(-1,-2));link.setOnClickListener(v->click.run());android.view.View line=new android.view.View(this);line.setBackgroundColor(0xffedf2f8);box.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));}
+    private void pair(LinearLayout root,String first,Runnable a,String second,Runnable b){LinearLayout bar=new LinearLayout(this);Button left=new Button(this),right=new Button(this);left.setText(first);right.setText(second);styleButton(left);styleButton(right);left.setTextColor(BLUE);left.setBackground(background(Color.WHITE,BLUE));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);lp.setMargins(0,dp(10),dp(5),0);bar.addView(left,lp);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,dp(54),1);rp.setMargins(dp(5),dp(10),0,0);bar.addView(right,rp);root.addView(bar);left.setOnClickListener(v->a.run());right.setOnClickListener(v->b.run());}
+    private void row(LinearLayout box,String key,String value){LinearLayout line=new LinearLayout(this);line.setGravity(android.view.Gravity.CENTER_VERTICAL);line.setPadding(0,dp(9),0,dp(9));line.addView(text(key,14,MUTED),new LinearLayout.LayoutParams(0,-2,1));TextView right=text(value,15,INK);right.setGravity(android.view.Gravity.RIGHT);line.addView(right,new LinearLayout.LayoutParams(0,-2,1));box.addView(line);}
+    private LinearLayout page(String title){return page(title,true);}
+    private LinearLayout page(String title,boolean navigation){
         if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
-        accountPage=false;syncPage=false;maintenancePage=false;
-        pageVersion++;
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(20),dp(16),dp(24));
-        root.setBackgroundColor(Color.rgb(240,247,255));scroll.addView(root);
-        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(Color.WHITE);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        if(runtime.hasSession()){
-            LinearLayout nav=new LinearLayout(this);String[] labels={"核验","记录","维护"};
-            for(int i=0;i<labels.length;i++){final int index=i;Button tab=new Button(this);tab.setText(labels[i]);tab.setTextColor(Color.rgb(25,117,255));tab.setBackgroundColor(Color.WHITE);nav.addView(tab,new LinearLayout.LayoutParams(0,dp(52),1));tab.setOnClickListener(v->{if(index==0)showAccount();else if(index==1)showLocalRecords();else showMaintenance();});}shell.addView(nav);
-        }setContentView(shell);
-        LinearLayout banner=new LinearLayout(this);banner.setOrientation(LinearLayout.VERTICAL);banner.setPadding(dp(14),dp(8),dp(14),dp(8));banner.setBackground(new TerminalHeaderDrawable());root.addView(banner);
-        TextView brand=new TextView(this);brand.setText("一卡通景区刷脸核验端");brand.setTextSize(13);brand.setTextColor(Color.WHITE);LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);
-        top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
-        Button settings=new Button(this);settings.setText("管理员设置");settings.setAllCaps(false);
-        settings.setTextColor(Color.rgb(25,117,255));settings.setBackground(background(Color.WHITE,0));settings.setContentDescription("验证密码进入管理员设置");
-        top.addView(settings,new LinearLayout.LayoutParams(dp(112),dp(48)));banner.addView(top);
-        settings.setOnClickListener(v->openBaiduSettings());
-        TextView heading=new TextView(this);heading.setText(title);heading.setTextSize(25);heading.setTextColor(Color.WHITE);heading.setPadding(0,dp(14),0,dp(12));banner.addView(heading);
-        communication=new TextView(this);communication.setText(runtime.communicationStatus());communication.setTextSize(14);communication.setTextColor(Color.rgb(77,98,129));communication.setPadding(0,0,0,dp(12));root.addView(communication);
-        status=new TextView(this);status.setTextSize(14);status.setTextColor(Color.rgb(77,98,129));status.setPadding(0,0,0,dp(16));root.addView(status);
-        Button permissions=new Button(this);permissions.setText("权限管理 / 相机授权");permissions.setAllCaps(false);
-        permissions.setTextColor(Color.rgb(25,117,255));permissions.setBackground(background(Color.WHITE,Color.rgb(213,228,247)));root.addView(permissions);permissions.setOnClickListener(v->explainPermissions());
-        return root;
+        accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
+        getWindow().setStatusBarColor(BLUE);getWindow().setNavigationBarColor(Color.WHITE);
+        LinearLayout shell=new LinearLayout(this);shell.setOrientation(1);shell.setBackgroundColor(0xfff0f7ff);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout outer=new LinearLayout(this);outer.setOrientation(1);scroll.addView(outer);
+        LinearLayout banner=new LinearLayout(this);banner.setOrientation(1);banner.setGravity(android.view.Gravity.CENTER_VERTICAL);banner.setPadding(dp(18),dp(12),dp(18),dp(14));banner.setBackground(artwork());outer.addView(banner,new LinearLayout.LayoutParams(-1,dp(title.equals("景区工作人员登录")?190:100)));
+        LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);TextView heading=text(title,23,Color.WHITE);heading.setTypeface(null,1);top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        TextView settings=text("⚙ 管理员设置",12,Color.WHITE);settings.setPadding(dp(8),dp(12),dp(8),dp(12));settings.setBackground(background(0x302075ff,0x88ffffff));top.addView(settings);settings.setOnClickListener(v->openBaiduSettings());banner.addView(top);
+        TextView subtitle=text(title.equals("景区工作人员登录")?"一卡通核验端":"景区年卡核验",14,Color.WHITE);subtitle.setPadding(0,dp(6),0,0);banner.addView(subtitle);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setPadding(dp(12),dp(12),dp(12),dp(16));outer.addView(root);
+        communication=text(runtime.communicationStatus(),12,MUTED);communication.setPadding(dp(6),0,0,dp(6));root.addView(communication);
+        status=text("",13,MUTED);status.setPadding(dp(6),0,dp(6),dp(8));root.addView(status);
+        if(runtime.hasSession()&&navigation){LinearLayout nav=new LinearLayout(this);nav.setBackgroundColor(Color.WHITE);String[] names={"⌂\n核验","▤\n记录","⚙\n维护"};for(int i=0;i<3;i++){final int index=i;TextView tab=text(names[i],14,BLUE);tab.setGravity(17);nav.addView(tab,new LinearLayout.LayoutParams(0,dp(60),1));tab.setOnClickListener(v->{if(index==0)showAccount();else if(index==1)showLocalRecords();else showMaintenance();});}shell.addView(nav);}
+        setContentView(shell);return root;
     }
     private boolean cameraAllowed(){return Build.VERSION.SDK_INT<23||checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}
     private void explainPermissions(){
@@ -258,82 +265,48 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             default: return "激活失败，请核对授权码（"+code+"）";
         }
     }
-    private void showLogin() {
-        if (!authorized) { showActivation(); return; }
-        LinearLayout root=page("景区账号登录");int version=pageVersion;
-        EditText user=new EditText(this);styleInput(user,"请输入后台开通的景区账号");user.setInputType(InputType.TYPE_CLASS_TEXT);root.addView(user);
-        EditText password=new EditText(this);styleInput(password,"请输入密码");
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        password.setTransformationMethod(PasswordTransformationMethod.getInstance());root.addView(password);
-        CheckBox visible=new CheckBox(this);visible.setText("显示密码");visible.setTextColor(Color.rgb(77,98,129));root.addView(visible);
-        visible.setOnCheckedChangeListener((button,checked)->{password.setTransformationMethod(checked?null:PasswordTransformationMethod.getInstance());password.setSelection(password.length());});
-        Button login=new Button(this);login.setText("登录");styleButton(login);root.addView(login);
-        status.setText("设备已激活，请登录景区账号");
-        connectionButton(root);
-        login.setOnClickListener(view->{
-            final String name=user.getText().toString().trim(),secret=password.getText().toString();
-            if(name.isEmpty()||secret.isEmpty()){status.setText("请输入账号和密码");return;}
-            login.setEnabled(false);status.setText("正在验证账号");
-            runtime.login(savedOrigin(),fingerprint(),name,secret,error->{
-                if(destroyed||version!=pageVersion)return;
-                if(error!=null){login.setEnabled(true);status.setText(error);return;}
-                password.setText("");showAccount();
-            });
-        });
-        if(runtime.hasSession()){
-            Button back=new Button(this);back.setText("返回原账号同步");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());
-            status.setText("原会话尚未退出，只能重新登录原账号；切换账号请返回完成同步退出。");
-        }
+    private void showLogin(){
+        if(!authorized){showActivation();return;}LinearLayout root=page("景区工作人员登录");int version=pageVersion;
+        status.setText("✓ 设备已授权");LinearLayout form=card(root);label(form,"账号登录");
+        form.addView(text("子账号",15,INK));EditText user=new EditText(this);styleInput(user,"请输入工作人员账号");form.addView(user);
+        form.addView(text("密码",15,INK));EditText password=new EditText(this);styleInput(password,"请输入密码");password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);form.addView(password);
+        CheckBox visible=new CheckBox(this);visible.setText("显示密码");form.addView(visible);visible.setOnCheckedChangeListener((v,checked)->{password.setTransformationMethod(checked?null:PasswordTransformationMethod.getInstance());password.setSelection(password.length());});
+        Button login=new Button(this);login.setText("登录");styleButton(login);form.addView(login);TextView hint=text("ⓘ 登录后自动获取所属景区与核验规则",13,MUTED);hint.setPadding(0,dp(14),0,0);form.addView(hint);
+        login.setOnClickListener(v->{String name=user.getText().toString().trim(),secret=password.getText().toString();if(name.isEmpty()||secret.isEmpty()){status.setText("请输入账号和密码");return;}login.setEnabled(false);status.setText("正在验证账号…");runtime.login(savedOrigin(),fingerprint(),name,secret,error->{if(destroyed||version!=pageVersion)return;if(error!=null){login.setEnabled(true);status.setText(error);return;}password.setText("");showSyncPage();});});
+        LinearLayout connection=card(root);label(connection,"▣ 平台连接");connection.addView(text(runtime.communicationStatus(),14,MUTED));action(connection,"修改连接地址  ›",this::showPlatformSettings,false);
+        LinearLayout note=card(root);note.setBackground(background(0xffe0f2ff,0));label(note,"同平台换账号，保留本地人员库");note.addView(text("更换账号后仍可使用本地已下载的人员库，无需重复同步。冷启动需加载本地检索库。",13,MUTED));
+        if(runtime.hasSession()){status.setText("原会话尚未退出，只能重新验证原账号");action(root,"返回原账号同步",this::showAccount,false);}
     }
-    private void showAccount() {
-        LinearLayout root=page("一卡通核验端");accountPage=true;status.setText(lastState);
-        overviewView=new TextView(this);overviewView.setText(runtime.overview());overviewView.setTextSize(15);overviewView.setTextColor(Color.rgb(45,65,95));overviewView.setPadding(dp(12),dp(12),dp(12),dp(12));overviewView.setBackground(background(Color.WHITE,Color.rgb(213,228,247)));root.addView(overviewView);
-        TextureView preview=new TextureView(this);preview.setVisibility(android.view.View.GONE);root.addView(preview,new LinearLayout.LayoutParams(-1,dp(330)));
-        cameraPreview=preview;
-        resultView=new TextView(this);resultView.setText(runtime.ready()?"同步完成，请开始核验":"等待平台信息与人员同步");resultView.setTextSize(23);resultView.setPadding(0,dp(16),0,dp(16));root.addView(resultView);
-        camera=new TerminalCamera(this,runtime,preview,text->{status.setText(text);startButton.setText("开始核验");});
-        startButton=new Button(this);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");styleButton(startButton);root.addView(startButton);startButton.setEnabled(runtime.ready());
-        startButton.setOnClickListener(v->{
-            if("暂停核验".contentEquals(startButton.getText())){camera.stop();cameraPreview.setVisibility(android.view.View.GONE);startButton.setText(runtime.ready()?"开始核验":"等待同步完成");resultView.setText("已暂停核验");return;}
-            if(!cameraAllowed()){requestCamera(true);return;}
-            startScanning();
-        });
-        Button next=new Button(this);next.setText("下一位 / 重新核验");styleButton(next);root.addView(next);
-        next.setOnClickListener(v->{if(!"暂停核验".contentEquals(startButton.getText())){status.setText("请先开始核验");return;}runtime.nextAttempt();});
-        diagnosticView=new TextView(this);diagnosticView.setText("识别诊断：等待相机画面");diagnosticView.setTextSize(13);diagnosticView.setTextColor(Color.rgb(77,98,129));diagnosticView.setPadding(0,dp(12),0,dp(12));root.addView(diagnosticView);
-        Button records=new Button(this);records.setText("本机今日记录 / 维护状态");styleButton(records);root.addView(records);records.setOnClickListener(v->showLocalRecords());
-        Button sync=new Button(this);sync.setText("人员同步进度");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->showSyncPage());
-        Button maintenance=new Button(this);maintenance.setText("设备维护");styleButton(maintenance);root.addView(maintenance);maintenance.setOnClickListener(v->showMaintenance());
-        refreshHomeSummary(root);runtime.retry();
+    private void showAccount(){
+        LinearLayout root=page("一卡通核验端");accountPage=true;status.setText(lastState);JSONObject profile=runtime.uiProfile();
+        LinearLayout state=card(root);LinearLayout chips=new LinearLayout(this);String[] vals={authorized?"✓ 设备已授权":"设备未授权",runtime.communicationStatus(),profile.optBoolean("sdkReady")?"◇ SDK就绪":"◇ SDK加载中"};homeChips=new TextView[3];int chipIndex=0;for(String value:vals){TextView t=text(value,12,BLUE);homeChips[chipIndex++]=t;t.setGravity(17);chips.addView(t,new LinearLayout.LayoutParams(0,-2,1));}state.addView(chips);homeAccount=text(profile.optString("scenicName","等待景区同步")+" · "+profile.optString("accountName","等待账号同步"),15,INK);homeAccount.setPadding(0,dp(16),0,dp(8));state.addView(homeAccount);TextView sync=text("人员库与同步状态  ›",14,BLUE);sync.setPadding(0,dp(8),0,0);state.addView(sync);sync.setOnClickListener(v->showSyncPage());
+        FrameLayout hero=new FrameLayout(this);hero.setBackground(artwork());root.addView(hero,new LinearLayout.LayoutParams(-1,dp(205)));hero.addView(new TerminalFaceGuide(this,false),new FrameLayout.LayoutParams(-1,-1));TextView guide=text("请正对镜头，保持面部无遮挡",14,Color.WHITE);guide.setGravity(17);guide.setBackground(background(0xaa152734,0));FrameLayout.LayoutParams gp=new FrameLayout.LayoutParams(-1,dp(36),android.view.Gravity.BOTTOM);hero.addView(guide,gp);
+        startButton=action(root,runtime.ready()?"▣  开始核验":"等待同步完成",()->{if(cameraAllowed())showScan();else requestCamera(true);},true);startButton.setEnabled(runtime.ready());
+        LinearLayout summary=card(root);final int version=pageVersion;summary.addView(text("正在读取今日记录…",14,MUTED));runtime.localRecords((data,error)->{if(destroyed||pageVersion!=version)return;summary.removeAllViews();if(error!=null){summary.addView(text(error,14,MUTED));return;}LinearLayout numbers=new LinearLayout(this);String[] keys={"passed","denied","pending"},labels={"今日通过","今日拒绝","待确认"};int[] colors={0xff00b96b,0xffff9a00,BLUE};for(int i=0;i<3;i++){LinearLayout c=new LinearLayout(this);c.setOrientation(1);c.setPadding(dp(4),dp(12),dp(4),dp(12));c.setGravity(17);c.setBackground(background(i==0?0xffedfaf5:i==1?0xfffff7ef:0xffedf5ff,0));TextView n=text(String.valueOf(data.optLong(keys[i])),26,colors[i]);n.setTypeface(null,1);c.addView(n);c.addView(text(labels[i],12,MUTED));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(3),0,dp(3),dp(12));numbers.addView(c,lp);}summary.addView(numbers);label(summary,"最近核验记录");JSONArray rows=data.optJSONArray("items");if(rows==null||rows.length()==0)summary.addView(text("本机当前会话暂无记录",14,MUTED));else for(int i=0;i<Math.min(3,rows.length());i++){JSONObject r=rows.optJSONObject(i);if(r!=null)row(summary,r.optString("time"),r.optString("text"));}TextView more=text("本机当前会话 · 查看全部  ›",12,BLUE);summary.addView(more);more.setOnClickListener(v->showLocalRecords());});
     }
-    private void refreshHomeSummary(LinearLayout root){
-        final int version=pageVersion;TextView summary=new TextView(this);homeSummary=summary;summary.setText("正在读取本机今日记录…");summary.setPadding(dp(16),dp(16),dp(16),dp(16));summary.setTextColor(Color.rgb(45,65,95));summary.setBackground(background(Color.WHITE,0));root.addView(summary);
-        runtime.localRecords((data,error)->{if(destroyed||pageVersion!=version)return;if(error!=null){summary.setText(error);return;}
-            summary.setText(homeSummaryText(data));});
-    }
-    private String homeSummaryText(JSONObject data){
-        StringBuilder text=new StringBuilder("本机当前会话 · 今日记录\n\n通过 "+data.optLong("passed")+"    拒绝 "+data.optLong("denied")+"    待确认 "+data.optLong("pending")+"\n\n最近核验记录");JSONArray rows=data.optJSONArray("items");
-        if(rows!=null)for(int i=0;i<Math.min(3,rows.length());i++){JSONObject r=rows.optJSONObject(i);if(r!=null)text.append("\n").append(r.optString("time")).append("  ").append(r.optString("text"));}return text.toString();
+    private void showScan(){
+        if(!runtime.ready()){showSyncPage();return;}LinearLayout root=page("人脸核验",false);scanPage=true;status.setText(runtime.uiProfile().optString("scenicName"));
+        FrameLayout frame=new FrameLayout(this);frame.setBackgroundColor(0xff24384b);root.addView(frame,new LinearLayout.LayoutParams(-1,dp(420)));cameraPreview=new TextureView(this);frame.addView(cameraPreview,new FrameLayout.LayoutParams(-1,-1));frame.addView(new TerminalFaceGuide(this,true),new FrameLayout.LayoutParams(-1,-1));
+        resultView=text("正在核验，请保持稳定",18,Color.WHITE);resultView.setGravity(17);resultView.setBackground(background(0xbb172737,0));FrameLayout.LayoutParams hint=new FrameLayout.LayoutParams(-1,dp(54),android.view.Gravity.BOTTOM);frame.addView(resultView,hint);
+        diagnosticView=text("识别完成后由平台确认入园权限",13,MUTED);diagnosticView.setPadding(0,dp(14),0,dp(14));root.addView(diagnosticView);
+        camera=new TerminalCamera(this,runtime,cameraPreview,error->{status.setText(error);startButton.setText("开始核验");});
+        startButton=action(root,"暂停核验",()->{if("暂停核验".contentEquals(startButton.getText())){camera.stop();startButton.setText("开始核验");resultView.setText("已暂停");}else startScanning();},false);
+        action(root,"下一位 / 重新核验",()->{if(!"暂停核验".contentEquals(startButton.getText())){status.setText("请先开始核验");return;}runtime.nextAttempt();},false);action(root,"返回首页",this::showAccount,false);startScanning();
     }
     private boolean syncPage,maintenancePage;
+    private void updateSync(){if(loadRing==null)return;long total=runtime.loadTotal(),loaded=runtime.loadedFaces();loadRing.setProgress(loaded,total);loadText.setText(loaded+" / "+total+"\n已用时 "+runtime.loadElapsed()/1000+" 秒");JSONObject p=runtime.uiProfile();syncDetail.setText("平台待同步："+p.optLong("pendingPeople")+"    待回执："+p.optLong("pendingReceipts")+"\n\n平台配置："+(p.optBoolean("platformSynced")?"已同步":"等待同步")+"\n检索库："+(p.optBoolean("sdkReady")?"已加载":"准备中")+"\n\n"+lastState);}
     private void showSyncPage(){
-        LinearLayout root=page("人员同步");syncPage=true;status.setText(lastState);
-        TextView explanation=new TextView(this);explanation.setText("本地特征加载与平台增量同步分别处理。加载期间可以返回首页或查看维护信息，准备完成后再开始核验。\n\n同平台换账号保留人员库。冷启动恢复SDK内存，不代表重新下载照片。");explanation.setTextSize(16);explanation.setTextColor(Color.rgb(45,65,95));explanation.setPadding(dp(16),dp(16),dp(16),dp(16));explanation.setBackground(background(Color.WHITE,0));root.addView(explanation);
-        TextView info=new TextView(this);info.setText(runtime.overview());info.setTextSize(15);info.setPadding(0,dp(20),0,dp(20));root.addView(info);overviewView=info;
-        Button retry=new Button(this);retry.setText("立即同步 / 重试");styleButton(retry);root.addView(retry);retry.setOnClickListener(v->runtime.retry());
-        Button back=new Button(this);back.setText("返回首页");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());
+        LinearLayout root=page("人员同步");syncPage=true;status.setText("优先处理删除与失效数据");LinearLayout loading=card(root);label(loading,"本地检索库加载");LinearLayout progress=new LinearLayout(this);progress.setGravity(16);loadRing=new TerminalProgressView(this);progress.addView(loadRing,new LinearLayout.LayoutParams(dp(120),dp(120)));loadText=text("",19,INK);progress.addView(loadText,new LinearLayout.LayoutParams(0,-2,1));loading.addView(progress);
+        LinearLayout changes=card(root);label(changes,"平台增量同步");syncDetail=text("",15,MUTED);changes.addView(syncDetail);updateSync();
+        LinearLayout note=card(root);note.setBackground(background(0xffe4f3ff,0));note.addView(text("加载期间可查看记录与维护，完成后可开始核验。同平台换账号保留本地人员库。",14,MUTED));
+        action(root,"立即同步 / 重试",()->runtime.retry(),false);action(root,"返回首页",this::showAccount,false);
     }
     private void showMaintenance(){
-        LinearLayout root=page("设备维护");maintenancePage=true;status.setText(lastState);
-        TextView info=new TextView(this);info.setText(runtime.overview()+"\n当前业务模式：RGB活体");info.setTextSize(16);info.setTextColor(Color.rgb(45,65,95));info.setPadding(dp(16),dp(16),dp(16),dp(16));info.setBackground(background(Color.WHITE,0));root.addView(info);
-        Button admin=new Button(this);admin.setText("管理员设置 · 密码验证");styleButton(admin);root.addView(admin);admin.setOnClickListener(v->openBaiduSettings());
-        Button stats=new Button(this);stats.setText("景区入园统计");styleButton(stats);root.addView(stats);stats.setOnClickListener(v->showStatistics());
-        Button records=new Button(this);records.setText("本机核验记录");styleButton(records);root.addView(records);records.setOnClickListener(v->showLocalRecords());
-        Button sync=new Button(this);sync.setText("人员同步进度");styleButton(sync);root.addView(sync);sync.setOnClickListener(v->showSyncPage());
-        Button login=new Button(this);login.setText("重新验证原账号");styleButton(login);root.addView(login);login.setOnClickListener(v->showLogin());
-        connectionButton(root);
-        Button logout=new Button(this);logout.setText("同步后退出账号");styleButton(logout);root.addView(logout);logout.setOnClickListener(v->{logout.setEnabled(false);status.setText("正在确认原账号记录、人员任务和回执，完成后退出");runtime.exit(error->{if(destroyed)return;logout.setEnabled(true);if(error!=null)status.setText(error);else if(!runtime.hasSession())showLogin();});});
-        Button back=new Button(this);back.setText("返回核验首页");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());
+        LinearLayout root=page("设备维护");maintenancePage=true;status.setText(lastState);JSONObject p=runtime.uiProfile();LinearLayout device=card(root);label(device,authorized?"✓ 设备已授权":"设备未授权");row(device,"平台通信",runtime.communicationStatus());row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
+        LinearLayout sync=card(root);label(sync,"▣ 数据与同步");row(sync,"本地特征",String.valueOf(p.optLong("localFaces")));row(sync,"待确认记录",String.valueOf(p.optLong("pendingEvents")));row(sync,"同步状态",runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);
+        LinearLayout menus=card(root);menu(menus,"⚙ 管理员设置",this::openBaiduSettings);menu(menus,"核验记录与统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"备份与恢复 · 规划中",()->new android.app.AlertDialog.Builder(this).setTitle("备份与恢复").setMessage("卸载后的加密备份恢复尚未开放。请使用覆盖安装，保留本机未确认记录与人员库。").setPositiveButton("知道了",null).show());
+        action(root,"平台连接设置",this::showPlatformSettings,false);action(root,"重新验证原账号",this::showLogin,false);
+        Button logout=action(root,"同步后退出账号",()->{},false);logout.setOnClickListener(v->{logout.setEnabled(false);status.setText("正在确认原账号记录、人员任务和回执…");runtime.exit(error->{if(destroyed)return;logout.setEnabled(true);if(error!=null)status.setText(error);else if(!runtime.hasSession())showLogin();});});TextView note=text("ⓘ 原账号记录确认完成后才能切换",12,MUTED);note.setGravity(17);root.addView(note);
     }
     private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");return;}cameraPreview.setVisibility(android.view.View.VISIBLE);if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
@@ -341,7 +314,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(request!=200)return;
         boolean resume=startAfterPermission;startAfterPermission=false;
         if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED){
-            Toast.makeText(this,"相机已授权",Toast.LENGTH_SHORT).show();if(resume&&accountPage)startScanning();
+            Toast.makeText(this,"相机已授权",Toast.LENGTH_SHORT).show();if(resume&&accountPage)showScan();
         }else{status.setText("相机权限未授权；可继续同步和统计，需要核验时请打开权限管理");}
     }
 
@@ -375,28 +348,23 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         query.setOnClickListener(v->{query.setEnabled(false);runtime.statistics(from.getText().toString(),to.getText().toString(),(data,error)->{if(destroyed||version!=pageVersion)return;query.setEnabled(true);if(error!=null){status.setText(error);return;}status.setText(data.optString("countingDescription"));StringBuilder text=new StringBuilder("每日去重人数合计："+data.optLong("totalDailyPeople")+" 人\n\n");JSONArray items=data.optJSONArray("items");if(items!=null)for(int i=0;i<items.length();i++){JSONObject row=items.optJSONObject(i);if(row!=null)text.append(row.optString("date")).append(" · ").append(row.optString("scenicName")).append("：").append(row.optLong("people")).append(" 人\n");}results.setText(text);});});
         Button back=new Button(this);back.setText("返回设备状态");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());query.performClick();
     }
-    @Override public void status(String text,boolean ready,boolean hasSession){
-        if(destroyed)return;lastState=text;if(syncPage){status.setText(text);if(overviewView!=null)overviewView.setText(runtime.overview());}if(!hasSession&&authorized&&!baiduSettingsOpen&&(accountPage||syncPage||maintenancePage)){showLogin();return;}if(!accountPage)return;status.setText(text);if(overviewView!=null)overviewView.setText(runtime.overview());
-        if(startButton!=null){
-            boolean scanning="暂停核验".contentEquals(startButton.getText());
-            if(!ready&&scanning){if(camera!=null)camera.stop();if(cameraPreview!=null)cameraPreview.setVisibility(android.view.View.GONE);scanning=false;}
-            if(!scanning){startButton.setText(ready?"开始核验":"等待同步完成");if(resultView!=null)resultView.setText(ready?"同步完成，请开始核验":"等待平台信息与人员同步");}
-            startButton.setEnabled(ready);
-        }if(!hasSession&&authorized)showLogin();
+    @Override public void status(String value,boolean ready,boolean hasSession){
+        if(destroyed)return;lastState=value;if(syncPage){status.setText(value);updateSync();}
+        if(!hasSession&&authorized&&!baiduSettingsOpen&&(accountPage||scanPage||resultPage||syncPage||maintenancePage)){showLogin();return;}
+        if(accountPage){status.setText(value);JSONObject p=runtime.uiProfile();if(homeChips!=null){homeChips[1].setText(runtime.communicationStatus());homeChips[2].setText(p.optBoolean("sdkReady")?"◇ SDK就绪":"◇ SDK加载中");}if(homeAccount!=null)homeAccount.setText(p.optString("scenicName","等待景区同步")+" · "+p.optString("accountName","等待账号同步"));if(startButton!=null){startButton.setText(ready?"▣  开始核验":"等待同步完成");startButton.setEnabled(ready);}}
+        if(scanPage){status.setText(value);if(!ready){if(camera!=null)camera.stop();startButton.setText("开始核验");}startButton.setEnabled(ready);}
     }
-    @Override public void diagnostics(String text){if(!destroyed&&accountPage&&diagnosticView!=null)diagnosticView.setText(text);}
-    @Override public void communication(String text){if(!destroyed&&communication!=null)communication.setText(text);}
-    @Override public void result(String text,String voice,boolean open){
-        if(destroyed||!accountPage||resultView==null)return;resultView.setText(text);resultView.setTextColor(open?Color.rgb(22,120,60):Color.rgb(180,45,30));
+    @Override public void diagnostics(String value){if(!destroyed&&scanPage&&diagnosticView!=null)diagnosticView.setText(value);}
+    @Override public void communication(String value){if(!destroyed&&communication!=null){communication.setText(value);if(accountPage&&homeChips!=null)homeChips[1].setText(value);}}
+    @Override public void result(String value,String voice,boolean open){
+        if(destroyed||!scanPage)return;if(value.startsWith("已开始新一轮")){resultView.setText(value);return;}
         if(speechReady&&!voice.isEmpty())speech.speak(voice,TextToSpeech.QUEUE_FLUSH,null,"terminal-result");
-        final int version=pageVersion;runtime.localRecords((data,error)->{if(!destroyed&&pageVersion==version&&homeSummary!=null&&error==null)homeSummary.setText(homeSummaryText(data));});
-        if(text.startsWith("已开始新一轮"))return;
-        if(camera!=null)camera.stop();
-        TextView outcome=new TextView(this);outcome.setText((open?"✓  核验通过":"本次未放行")+"\n\n"+text);outcome.setTextSize(23);outcome.setTextColor(open?Color.rgb(15,155,85):Color.rgb(185,83,40));outcome.setPadding(dp(24),dp(24),dp(24),dp(24));
-        new android.app.AlertDialog.Builder(this).setTitle("核验结果").setView(outcome).setCancelable(false)
-            .setPositiveButton("继续核验",(d,w)->{if(runtime.ready()){startScanning();runtime.nextAttempt();}else{showSyncPage();}})
-            .setNegativeButton("返回首页",(d,w)->showAccount()).show();
+        LinearLayout root=page("核验结果",false);resultPage=true;status.setText("");LinearLayout outcome=card(root);outcome.setGravity(17);TextView badge=text(open?"✓":"!",60,open?0xff00bf73:0xffff7a45);badge.setGravity(17);badge.setBackground(background(open?0xffe0f9ee:0xffffede6,0));outcome.addView(badge,new LinearLayout.LayoutParams(dp(110),dp(110)));TextView title=text(open?"核验通过":"本次未放行",30,open?0xff004b31:0xffb64520);title.setTypeface(null,1);title.setPadding(0,dp(18),0,dp(8));outcome.addView(title);TextView detail=text(value,17,MUTED);detail.setGravity(17);outcome.addView(detail);
+        LinearLayout facts=card(root);SimpleDateFormat fmt=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.CHINA);fmt.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));row(facts,"结果显示时间",fmt.format(new java.util.Date()));row(facts,"所属景区",runtime.uiProfile().optString("scenicName","待同步"));row(facts,"核验方式","人脸核验");facts.addView(text("入园记录回执以记录页状态为准",12,MUTED));
+        LinearLayout art=card(root);art.setBackground(artwork());art.setGravity(17);art.setMinimumHeight(dp(130));TextView message=text(open?"祝您游览愉快":"请核对提示后重试",23,0xff064e55);message.setTypeface(null,1);art.addView(message);
+        pair(root,"返回首页",this::showAccount,"继续核验",()->{if(runtime.ready())showScan();else showSyncPage();});
     }
+    @Override public void onBackPressed(){if(scanPage||resultPage||syncPage||maintenancePage){showAccount();return;}if(runtime.hasSession()){showMaintenance();return;}super.onBackPressed();}
     @Override protected void onResume() { super.onResume();foreground=true; }
     @Override protected void onPause() {
         foreground=false;

@@ -57,6 +57,11 @@ public final class TerminalRuntime {
     public boolean hasSession(){return hasSession;}
     public boolean ready(){return TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
     public String overview(){return overview;}
+    private volatile JSONObject uiProfile=new JSONObject();
+    private volatile long loadedFaces,loadTotal,loadElapsed;
+    public JSONObject uiProfile(){try{return new JSONObject(uiProfile.toString());}catch(Exception e){return new JSONObject();}}
+    public long loadedFaces(){return loadedFaces;} public long loadTotal(){return loadTotal;} public long loadElapsed(){return loadElapsed;}
+
     public void beginSettings(Done done){
         settingsOpen=true;ready=false;pauseCamera();
         actor.execute(()->{try{
@@ -111,7 +116,7 @@ public final class TerminalRuntime {
         if(modelFailed)throw new IllegalStateException("算法加载失败，请重启应用后重试；原账号记录已保留");
         if(!engine.ready()){
             emit("正在加载算法和本地人员库，请稍候");presence.sdk("AUTHORIZED","MODEL_LOADING",null);
-            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store,(loaded,total,elapsed)->emit("正在加载本地特征："+loaded+" / "+total+"，已用时 "+elapsed/1000+" 秒；无需重新下载照片"));presence.sdk("AUTHORIZED","READY",null);}catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
+            try{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");engine.init(context,store,(loaded,total,elapsed)->{loadedFaces=loaded;loadTotal=total;loadElapsed=elapsed;emit("正在加载本地特征："+loaded+" / "+total+"，已用时 "+elapsed/1000+" 秒；无需重新下载照片");});presence.sdk("AUTHORIZED","READY",null);}catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
         }
         if(!session.optBoolean("resetDone")){
             if(!"SHARED".equals(session.optString("libraryMode")))engine.reset(store);
@@ -174,6 +179,7 @@ public final class TerminalRuntime {
             &&profile.optLong("deviceId")==session.optLong("deviceId")
             &&profile.optString("accountName").equals(session.optString("username"))&&messages!=null;
         if(!platformSynced){ready=false;overview="平台信息未完整同步，请更新配套平台后重试";throw new IllegalStateException(overview);}
+        uiProfile=new JSONObject(profile.toString()).put("localFaces",store.faces()).put("pendingPeople",result.optLong("pendingPeople")).put("pendingReceipts",result.optLong("pendingReceipts")).put("sdkReady",engine.ready()).put("pendingEvents",pendingEvents).put("platformSynced",true);
         feedback=messages;store.metadata("feedback",feedback.toString(),true);
         lastHeartbeat=SystemClock.elapsedRealtime();
         pendingPeople=result.optLong("pendingSync")>0;
@@ -250,7 +256,7 @@ public final class TerminalRuntime {
         JSONObject current=store.active();
         JSONObject result=client.request("/api/terminal/recovery/release",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
         if(!result.optBoolean("released"))throw new IllegalStateException("原账号同步尚未完成");
-        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;platformSynced=false;overview="平台信息：未登录";scanning=false;emit("同步与回执已完成，可以登录其他账号");
+        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;platformSynced=false;overview="平台信息：未登录";uiProfile=new JSONObject();scanning=false;emit("同步与回执已完成，可以登录其他账号");
     }
     public void frame(byte[] bytes,int width,int height,int rotation){
         if(!scanning||!authorized||!engine.ready()||!frameQueued.compareAndSet(false,true))return;

@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 112
-        versionName "0.5.0-admin-ui"
+        versionCode 113
+        versionName "0.5.1-ui-layout"
         multiDexEnabled true
 
         ndk {
