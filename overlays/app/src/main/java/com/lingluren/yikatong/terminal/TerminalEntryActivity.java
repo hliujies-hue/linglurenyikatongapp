@@ -42,6 +42,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private TerminalCamera camera;
     private TextToSpeech speech;
     private boolean speechReady, accountPage, scanPage, resultPage;
+    private int speechGeneration;
+    private String speechStatus="正在初始化中文语音";
+    private TextView voiceStatusView;
 
     private final int BLUE=0xff187cff, INK=0xff102139, MUTED=0xff788aa7;
     private final java.util.Map<String,android.graphics.Bitmap> artworkCache=new java.util.HashMap<>();
@@ -100,6 +103,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if((request==301||request==302)&&result==RESULT_OK&&data!=null&&data.getData()!=null){backupPassword(data.getData(),request==302);return;}
+        if(request==401){initSpeech();return;}
         if(request==201){TerminalApplication.lock();baiduSettingsOpen=false;runtime.endSettings();if(runtime.hasSession())showAccount();}
     }
     private TextView status,communication,maintenanceConnection;
@@ -116,7 +120,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         runtime=TerminalRuntime.get(this);runtime.attach(this);
-        speech=new TextToSpeech(this,code->{if(code==TextToSpeech.SUCCESS){int result=speech.setLanguage(Locale.SIMPLIFIED_CHINESE);speechReady=result>=0;}});
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);initSpeech();
         PreferencesUtil.initPrefs(getApplicationContext());
         auth = new BdFaceAuth();
         try { runtime.configureConnection(savedOrigin(),fingerprint()); }
@@ -151,7 +155,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private LinearLayout page(String title,boolean navigation){
         if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
         if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics=null;}
-        maintenanceConnection=null;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
+        voiceStatusView=null;maintenanceConnection=null;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);getWindow().setStatusBarColor(0xff2f8fff);getWindow().setNavigationBarColor(Color.WHITE);
         boolean login="景区工作人员登录".equals(title),home="一卡通核验端".equals(title);
         LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff0f7ff);
@@ -295,12 +299,13 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private void showAccount(){
         LinearLayout root=page("一卡通核验端");accountPage=true;homeStatus(lastState);JSONObject profile=runtime.uiProfile();
         LinearLayout state=new LinearLayout(this);state.setOrientation(LinearLayout.VERTICAL);state.setPadding(dp(2),dp(6),dp(2),dp(10));root.addView(state);
-        LinearLayout chips=new LinearLayout(this);String[] vals={authorized?"设备已授权":"设备未授权",connectionLabel(),profile.optBoolean("sdkReady")?"SDK就绪":"SDK准备中"},icons={"check","wifi","sdk"};homeChips=new TextView[3];
-        for(int i=0;i<3;i++){LinearLayout box=new LinearLayout(this);box.setGravity(android.view.Gravity.CENTER);box.addView(new TerminalIconView(this,icons[i],i==0?0xff00be79:BLUE),new LinearLayout.LayoutParams(dp(20),dp(20)));TextView t=text(vals[i],12,INK);t.setPadding(dp(5),0,0,0);homeChips[i]=t;box.addView(t);box.setMinimumHeight(dp(32));chips.addView(box,new LinearLayout.LayoutParams(0,-2,1));}state.addView(chips);
+        LinearLayout chips=new LinearLayout(this);String[] vals={authorized?"设备已授权":"设备未授权",connectionLabel(),profile.optBoolean("sdkReady")?"领路人脸算法就绪":"领路人脸算法准备中"},icons={"check","wifi","sdk"};homeChips=new TextView[3];
+        for(int i=0;i<3;i++){LinearLayout box=new LinearLayout(this);box.setGravity(android.view.Gravity.CENTER);box.addView(new TerminalIconView(this,icons[i],i==0?0xff00be79:BLUE),new LinearLayout.LayoutParams(dp(20),dp(20)));TextView t=text(vals[i],12,INK);t.setGravity(android.view.Gravity.CENTER);t.setPadding(0,dp(5),0,0);box.setOrientation(LinearLayout.VERTICAL);homeChips[i]=t;box.addView(t,new LinearLayout.LayoutParams(-1,-2));box.setMinimumHeight(dp(32));chips.addView(box,new LinearLayout.LayoutParams(0,-2,1));}state.addView(chips);
         homeAccount=text(profile.optString("scenicName","等待景区同步")+" · "+profile.optString("accountName","等待账号同步"),14,INK);homeAccount.setPadding(dp(4),dp(13),0,dp(8));state.addView(homeAccount);TextView sync=text("人员库"+(runtime.ready()?"已就绪":"同步中")+"  ›",12,BLUE);sync.setPadding(dp(4),0,0,0);state.addView(sync);sync.setOnClickListener(v->showSyncPage());
         FrameLayout hero=new FrameLayout(this);hero.setBackground(artwork("terminal-landscape.png"));round(hero,12);int width=getResources().getDisplayMetrics().widthPixels;int previewHeight=Math.max(180,Math.min(238,Math.round(width/getResources().getDisplayMetrics().density*.50f)));root.addView(hero,new LinearLayout.LayoutParams(-1,dp(previewHeight)));
         TextureView preview=new TextureView(this);hero.addView(preview,new FrameLayout.LayoutParams(-1,-1));hero.addView(new TerminalFaceGuide(this,false),new FrameLayout.LayoutParams(-1,-1));TextView guide=text(cameraAllowed()?"请正对镜头，保持面部无遮挡":"点击开始核验后授权相机",13,Color.WHITE);guide.setGravity(android.view.Gravity.CENTER);guide.setBackground(background(0xbb152734,0));FrameLayout.LayoutParams gp=new FrameLayout.LayoutParams(-1,dp(32),android.view.Gravity.BOTTOM);gp.setMargins(dp(30),0,dp(30),dp(8));hero.addView(guide,gp);
         camera=new TerminalCamera(this,runtime,preview,error->{guide.setText(error);});if(cameraAllowed())camera.preview();
+        action(root,"语音播报设置 / 试听",this::showVoiceSettings,false);
         startButton=action(root,runtime.ready()?"开始核验":"查看同步进度",()->{if(!runtime.ready()){showSyncPage();return;}if(cameraAllowed())showScan();else requestCamera(true);},true);
         LinearLayout metrics=new LinearLayout(this);metrics.setPadding(0,dp(10),0,dp(6));root.addView(metrics);String[] keys={"passedPeople","passed","denied","notEffective"},labels={"通过人数","通过人次","今日拒绝","今日待生效"},metricIcons={"person","check","alert","clock"};int[] colors={0xff00b96b,BLUE,0xffee8240,0xffe9a100},fills={0xffedfaf5,0xffedf5ff,0xfffff2ec,0xfffff8e8};TextView[] values=new TextView[4];
         for(int i=0;i<4;i++){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(android.view.Gravity.CENTER);box.setPadding(dp(2),dp(7),dp(2),dp(7));box.setBackground(background(fills[i],0));box.addView(new TerminalIconView(this,metricIcons[i],colors[i]),new LinearLayout.LayoutParams(dp(20),dp(20)));TextView n=text("—",23,INK);n.setTypeface(null,android.graphics.Typeface.BOLD);n.setGravity(android.view.Gravity.CENTER);n.setPadding(0,dp(5),0,dp(5));values[i]=n;n.setMaxLines(1);if(Build.VERSION.SDK_INT>=26)n.setAutoSizeTextTypeUniformWithConfiguration(14,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);box.addView(n,new LinearLayout.LayoutParams(-1,-2));TextView caption=text(labels[i],11,MUTED);caption.setGravity(android.view.Gravity.CENTER);box.addView(caption,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(i==0?0:dp(4),0,i==3?0:dp(4),0);metrics.addView(box,lp);}
@@ -337,8 +342,8 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private void showMaintenance(){
         LinearLayout root=page("设备维护");maintenancePage=true;status.setText(TerminalMessages.friendly(lastState));JSONObject p=runtime.uiProfile();LinearLayout device=card(root);LinearLayout licensed=iconLabel("check",authorized?"设备已授权":"设备未授权",0xff00b779,32);licensed.setPadding(0,dp(8),0,dp(8));licensed.setBackground(artwork("terminal-result-mint.png"));round(licensed,8);device.addView(licensed);maintenanceConnection=row(device,"平台通信",TerminalMessages.friendly(runtime.communicationStatus()).replace("平台通信：",""));row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
         LinearLayout sync=card(root);label(sync,"数据与同步");TextView faceCount=row(sync,"本地特征","读取中…");TextView pendingCount=row(sync,"待确认记录","读取中…");final int maintenanceVersion=pageVersion;runtime.localRecords((data,error)->{if(destroyed||pageVersion!=maintenanceVersion)return;faceCount.setText(error==null?String.valueOf(data.optLong("localFaces")):"暂不可用");pendingCount.setText(error==null?String.valueOf(data.optLong("pending")):"暂不可用");});row(sync,"同步状态",runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);
-        LinearLayout audioBox=card(root);Switch voiceSwitch=new Switch(this);voiceSwitch.setText("核验语音播报");voiceSwitch.setTextSize(16);voiceSwitch.setChecked(localVoice());voiceSwitch.setOnCheckedChangeListener((button,enabled)->{getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",enabled).apply();if(!enabled&&speech!=null)speech.stop();});voiceSwitch.setTextColor(INK);voiceSwitch.setGravity(android.view.Gravity.CENTER_VERTICAL);voiceSwitch.setMinHeight(dp(48));audioBox.addView(voiceSwitch,new LinearLayout.LayoutParams(-1,-2));audioBox.addView(text(!speechReady?"中文语音未就绪，可在手机系统设置中检查语音引擎":runtime.voiceAllowed()?"本机可随时静音；不影响核验与记录":"后台已关闭语音，本机开启仍保持静音",12,MUTED));
-        LinearLayout menus=card(root);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"核验记录与统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);
+        LinearLayout audioBox=card(root);label(audioBox,"语音播报");Switch voiceSwitch=new Switch(this);voiceSwitch.setText("核验语音播报");voiceSwitch.setTextSize(16);voiceSwitch.setChecked(localVoice());voiceSwitch.setOnCheckedChangeListener((button,enabled)->{getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",enabled).apply();if(!enabled&&speech!=null)speech.stop();updateVoiceStatus();});voiceSwitch.setTextColor(INK);voiceSwitch.setGravity(android.view.Gravity.CENTER_VERTICAL);voiceSwitch.setMinHeight(dp(48));audioBox.addView(voiceSwitch,new LinearLayout.LayoutParams(-1,-2));voiceStatusView=text("",13,MUTED);voiceStatusView.setPadding(0,dp(8),0,dp(8));audioBox.addView(voiceStatusView);updateVoiceStatus();action(audioBox,"试听核验语音",()->speakResult("核验通过，欢迎入园"),false);action(audioBox,"系统语音设置",this::openSpeechSettings,false);
+        LinearLayout menus=card(root);menu(menus,"语音开关与试听",this::showVoiceSettings);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"核验记录与统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);
         action(root,"平台连接设置",this::showPlatformSettings,false);action(root,"重新验证原账号",this::showLogin,false);
         Button logout=action(root,"同步后退出账号",()->{},false);logout.setOnClickListener(v->{logout.setEnabled(false);status.setText("正在确认原账号记录、人员任务和回执…");runtime.exit(error->{if(destroyed)return;logout.setEnabled(true);if(error!=null)status.setText(error);else if(!runtime.hasSession())showLogin();});});TextView note=text("ⓘ 原账号记录确认完成后才能切换",12,MUTED);note.setGravity(android.view.Gravity.CENTER);root.addView(note);
     }
@@ -410,17 +415,44 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     @Override public void status(String value,boolean ready,boolean hasSession){
         if(destroyed)return;lastState=value;if(syncPage){status.setText(TerminalMessages.friendly(value));updateSync();}
         if(!hasSession&&authorized&&!baiduSettingsOpen&&(accountPage||scanPage||resultPage||syncPage||maintenancePage)){showLogin();return;}
-        if(accountPage){homeStatus(value);JSONObject p=runtime.uiProfile();if(homeChips!=null){homeChips[1].setText(connectionLabel());homeChips[2].setText(p.optBoolean("sdkReady")?"SDK就绪":"SDK准备中");}if(homeAccount!=null)homeAccount.setText(p.optString("scenicName","等待景区同步")+" · "+p.optString("accountName","等待账号同步"));if(startButton!=null){startButton.setText(ready?"开始核验":"查看同步进度");startButton.setEnabled(true);}}
+        if(accountPage){homeStatus(value);JSONObject p=runtime.uiProfile();if(homeChips!=null){homeChips[1].setText(connectionLabel());homeChips[2].setText(p.optBoolean("sdkReady")?"领路人脸算法就绪":"领路人脸算法准备中");}if(homeAccount!=null)homeAccount.setText(p.optString("scenicName","等待景区同步")+" · "+p.optString("accountName","等待账号同步"));if(startButton!=null){startButton.setText(ready?"开始核验":"查看同步进度");startButton.setEnabled(true);}}
         if(resultPage&&resultReceipt!=null)resultReceipt.setText(receiptText());
         if(scanPage){status.setText(value);if(!ready){if(diagnosticView!=null)diagnosticView.setText(value);if(camera!=null)camera.stop();startButton.setText("开始核验");}startButton.setEnabled(ready);}
     }
     @Override public void diagnostics(String value){if(!destroyed&&scanPage&&diagnosticView!=null)diagnosticView.setText(value);}
     @Override public void communication(String value){if(!destroyed&&communication!=null){communication.setText(TerminalMessages.friendly(value));if(maintenanceConnection!=null)maintenanceConnection.setText(TerminalMessages.friendly(value).replace("平台通信：",""));if(accountPage&&homeChips!=null)homeChips[1].setText(connectionLabel());}}
+    private void initSpeech(){
+        final int generation=++speechGeneration;speechReady=false;speechStatus="正在初始化中文语音";updateVoiceStatus();if(speech!=null){speech.stop();speech.shutdown();}
+        speech=new TextToSpeech(this,code->main.post(()->{
+            if(destroyed||generation!=speechGeneration)return;
+            if(code!=TextToSpeech.SUCCESS){speechStatus="手机未提供可用语音引擎，请打开系统语音设置";updateVoiceStatus();return;}
+            int language=speech.setLanguage(Locale.SIMPLIFIED_CHINESE);speechReady=language>=0;
+            speechStatus=language==TextToSpeech.LANG_MISSING_DATA?"缺少中文语音数据，请在系统语音设置中安装":language==TextToSpeech.LANG_NOT_SUPPORTED?"当前语音引擎不支持中文，请切换引擎":speechReady?"中文语音已就绪":"中文语音初始化失败，请重试";
+            speech.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            speech.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener(){public void onStart(String id){}public void onDone(String id){}public void onError(String id){main.post(()->{if(destroyed||generation!=speechGeneration)return;speechStatus="语音播放失败，请检查中文语音数据及媒体音量";updateVoiceStatus();Toast.makeText(TerminalEntryActivity.this,speechStatus,Toast.LENGTH_LONG).show();});}});
+            updateVoiceStatus();
+        }));
+    }
+    private void updateVoiceStatus(){if(voiceStatusView!=null)voiceStatusView.setText(!runtime.voiceAllowed()?"平台已关闭播报，请在后台核验端提示与语音中开启":!localVoice()?"本机语音已关闭":speechStatus+"；使用手机媒体音量");}
+    private void speakResult(String words){
+        if(!localVoice()||!runtime.voiceAllowed()){Toast.makeText(this,!localVoice()?"本机语音开关已关闭":"后台已关闭核验语音",Toast.LENGTH_SHORT).show();return;}
+        android.media.AudioManager audio=(android.media.AudioManager)getSystemService(AUDIO_SERVICE);
+        String problem=!speechReady?speechStatus:audio!=null&&audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)==0?"媒体音量为0，请按音量键调高":null;
+        if(problem!=null){Toast.makeText(this,problem,Toast.LENGTH_LONG).show();updateVoiceStatus();return;}
+        if(speech.speak(words,TextToSpeech.QUEUE_FLUSH,null,"terminal-"+SystemClock.elapsedRealtime())==TextToSpeech.ERROR){speechStatus="播报提交失败，请重新初始化语音";updateVoiceStatus();Toast.makeText(this,speechStatus,Toast.LENGTH_LONG).show();}
+    }
+    private void openSpeechSettings(){try{startActivityForResult(new Intent("com.android.settings.TTS_SETTINGS"),401);}catch(android.content.ActivityNotFoundException e){try{startActivityForResult(new Intent(Settings.ACTION_SETTINGS),401);}catch(android.content.ActivityNotFoundException ignored){Toast.makeText(this,"请手动打开手机设置中的文字转语音",Toast.LENGTH_LONG).show();}}}
+    private void showVoiceSettings(){
+        LinearLayout root=page("语音播报设置");status.setText("核验结果语音使用手机媒体音量。");LinearLayout box=card(root);label(box,"核验语音播报");
+        Switch toggle=new Switch(this);toggle.setText("开启语音播报");toggle.setTextColor(INK);toggle.setTextSize(16);toggle.setMinHeight(dp(52));toggle.setChecked(localVoice());box.addView(toggle,new LinearLayout.LayoutParams(-1,-2));
+        voiceStatusView=text("",14,MUTED);voiceStatusView.setPadding(0,dp(12),0,dp(12));box.addView(voiceStatusView);updateVoiceStatus();toggle.setOnCheckedChangeListener((v,on)->{getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",on).apply();if(!on&&speech!=null)speech.stop();updateVoiceStatus();});
+        action(root,"试听：核验通过",()->speakResult("核验通过，欢迎入园"),true);action(root,"重新初始化语音",this::initSpeech,false);action(root,"打开系统语音设置",this::openSpeechSettings,false);
+    }
     private String voiceLabel(){return !runtime.voiceAllowed()?"平台静音":localVoice()?"声音开":"已静音";}
     private String receiptText(){JSONObject out=runtime.outcome();return out.optBoolean("confirmed")?"记录状态：平台已确认":out.optBoolean("persisted")?"记录状态：平台已保存，回执确认中":"记录状态：等待补传或处理";}
     @Override public void result(String value,String voice,boolean open,String type){
         if(destroyed||!scanPage)return;if(value.startsWith("已开始新一轮")){resultView.setText(value);return;}
-        if(speechReady&&localVoice()&&runtime.voiceAllowed()&&!voice.isEmpty())speech.speak(voice,TextToSpeech.QUEUE_FLUSH,null,"terminal-result");
+        if(!voice.isEmpty())speakResult(voice);
         LinearLayout root=page("核验结果",false);resultPage=true;status.setText("");LinearLayout outcome=card(root);outcome.setGravity(android.view.Gravity.CENTER);TerminalResultBadge badge=new TerminalResultBadge(this,open);outcome.addView(badge,new LinearLayout.LayoutParams(dp(150),dp(150)));TextView title=text(TerminalResultType.title(type),28,open?0xff004b31:0xffb64520);title.setTypeface(null,android.graphics.Typeface.BOLD);title.setPadding(0,dp(18),0,dp(8));outcome.addView(title);TextView detail=text(value,17,MUTED);detail.setGravity(android.view.Gravity.CENTER);outcome.addView(detail);
         LinearLayout facts=card(root);SimpleDateFormat fmt=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.CHINA);fmt.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));String occurred=runtime.outcome().optString("occurredAt");String when="本机显示 "+fmt.format(new java.util.Date());try{SimpleDateFormat utc=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",Locale.US);utc.setTimeZone(TimeZone.getTimeZone("UTC"));if(!occurred.isEmpty())when=fmt.format(utc.parse(occurred));}catch(Exception ignored){}row(facts,"核验时间",when);row(facts,"所属景区",runtime.uiProfile().optString("scenicName","待同步"));row(facts,"核验方式","人脸核验");resultReceipt=text(receiptText(),14,runtime.outcome().optBoolean("confirmed")?0xff00ae71:MUTED);resultReceipt.setPadding(0,dp(8),0,0);facts.addView(resultReceipt);
         LinearLayout art=card(root);art.setBackground(artwork("terminal-result-mint.png"));round(art,12);art.setGravity(android.view.Gravity.CENTER);art.setMinimumHeight(dp(130));TextView message=text(open?"祝您游览愉快":"请核对提示后重试",23,0xff064e55);message.setTypeface(null,android.graphics.Typeface.BOLD);art.addView(message);TextView wish=text(open?"一山一水皆美景，期待下次再见":"本次未放行，可联系现场工作人员",13,0xff397878);wish.setPadding(0,dp(10),0,0);art.addView(wish);
