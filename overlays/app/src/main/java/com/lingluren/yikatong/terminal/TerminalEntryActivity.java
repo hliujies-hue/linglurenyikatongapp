@@ -406,6 +406,10 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
                     +"\n当前可核验："+(data.optBoolean("ready")?"是":"否")+"\n相机权限："+(cameraAllowed()?"已开启":"未开启")
                     +"\n本地特征："+data.optLong("localFaces")+" 人\n启动加载："+data.optLong("loadedFaces")+" / "+data.optLong("loadTotal")+" 人，"+data.optLong("loadElapsed")/1000+" 秒"
                     +"\n待确认记录："+data.optLong("pendingEvents")+" 条\n待同步人员："+count(q,"pendingPeople")+"\n人员待回执："+count(q,"pendingReceipts")
+                    +"\n当前同步步骤："+data.optString("syncStep")+"（"+data.optLong("syncStepSeconds")+"秒）"
+                    +"\n最近成功心跳请求耗时："+data.optLong("lastSyncRequestMs")+" ms；连续同步失败："+data.optInt("syncFailures")+"；下次同步检查："+data.optLong("retrySeconds")+"秒后"
+                    +"\n最近人员批次尝试耗时："+data.optLong("lastPersonnelBatchMs")+" ms（含下载、算法和回执）；最近人员回执尝试："+data.optLong("lastPersonnelAckMs")+" ms（0表示尚无采样或不足1ms）"
+                    +"\n平台名单："+(q!=null&&q.optJSONObject("roster")!=null?q.optJSONObject("roster").optString("message"):"尚未取得平台名单诊断，请先完成登录并检查连接")
                     +"\n最近连接尝试："+deviceTime(data.optLong("lastAttempt"))+"\n最近连接成功："+deviceTime(data.optLong("lastSuccess"))
                     +"\n连续连接失败："+data.optInt("consecutiveFailures")+" 次\n连接检查："+(data.optBoolean("checking")?"进行中":data.optString("failureKind").isEmpty()?"无待处理错误":data.optString("failureKind"))
                     +"\n最近业务心跳："+deviceTime(data.optLong("lastHeartbeat"))+(age<0?"":"（"+age+" 秒前）")
@@ -418,7 +422,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         LinearLayout root=page("设备维护");maintenancePage=true;status.setText(TerminalMessages.friendly(lastState));JSONObject p=runtime.uiProfile();LinearLayout device=card(root);LinearLayout licensed=iconLabel("check",authorized?"设备已授权":"设备未授权",0xff00b779,32);licensed.setPadding(0,dp(8),0,dp(8));licensed.setBackground(artwork("terminal-result-mint.png"));round(licensed,8);device.addView(licensed);maintenanceConnection=row(device,"平台通信",TerminalMessages.friendly(runtime.communicationStatus()).replace("平台通信：",""));row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
         LinearLayout sync=card(root);label(sync,"数据与同步");TextView faceCount=row(sync,"本地特征","读取中…");TextView pendingCount=row(sync,"待确认记录","读取中…");final int maintenanceVersion=pageVersion;runtime.localRecords((data,error)->{if(destroyed||pageVersion!=maintenanceVersion)return;faceCount.setText(error==null?String.valueOf(data.optLong("localFaces")):"暂不可用");pendingCount.setText(error==null?String.valueOf(data.optLong("pending")):"暂不可用");});row(sync,"同步状态",runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);
         LinearLayout audioBox=card(root);label(audioBox,"语音播报");addVoiceToggle(audioBox);voiceStatusView=text("",13,MUTED);voiceStatusView.setPadding(0,dp(8),0,dp(8));audioBox.addView(voiceStatusView);updateVoiceStatus();action(audioBox,"语音设置与试听",this::showVoiceSettings,false);
-        LinearLayout menus=card(root);menu(menus,"设备诊断与连接检查",this::showDiagnostics);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"景区入园统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);
+        LinearLayout menus=card(root);menu(menus,"设备诊断与连接检查",this::showDiagnostics);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"景区入园统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);menu(menus,"卸载或清除数据前检查",this::showUninstallCheck);
         action(root,"平台连接设置",this::showPlatformSettings,false);action(root,"重新验证原账号",this::showLogin,false);
         Button logout=action(root,"同步后退出账号",()->{},false);logout.setOnClickListener(v->{logout.setEnabled(false);status.setText("正在确认原账号记录、人员任务和回执…");runtime.exit(error->{if(destroyed)return;logout.setEnabled(true);if(error!=null)status.setText(error);else if(!runtime.hasSession())showLogin();});});TextView note=text("ⓘ 原账号记录确认完成后才能切换",12,MUTED);note.setGravity(android.view.Gravity.CENTER);root.addView(note);
     }
@@ -430,6 +434,19 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED){
             Toast.makeText(this,"相机已授权",Toast.LENGTH_SHORT).show();if(resume&&accountPage)showScan();
         }else{status.setText("相机权限未授权；可继续同步和统计，需要核验时请打开权限管理");}
+    }
+
+    private void showUninstallCheck(){
+        LinearLayout root=page("卸载或清除数据前检查");final int version=pageVersion;
+        TextView report=text("正在读取本机会话待确认记录…",15,INK);root.addView(report);
+        runtime.localRecords((data,error)->{if(destroyed||version!=pageVersion)return;
+            if(error!=null){report.setText("未能读取本机记录："+TerminalMessages.friendly(error)+"；尚不能判断数据是否已上传，请勿卸载或清除数据。");return;}
+            long pending=data.optLong("pending");
+            report.setText(TerminalSyncSchedule.uninstallNotice(pending,runtime.hasSession()));
+        });
+        action(root,"查看同步进度并处理待确认记录",this::showSyncPage,true);
+        action(root,"查看加密记录备份说明",this::showBackup,false);
+        action(root,"返回设备维护",this::showMaintenance,false);
     }
 
     private void showBackup(){

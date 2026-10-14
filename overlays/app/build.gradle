@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 123
-        versionName "0.7.4-recovery"
+        versionCode 124
+        versionName "0.7.5-diagnostics"
         multiDexEnabled true
 
         ndk {

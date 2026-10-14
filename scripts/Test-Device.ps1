@@ -22,7 +22,7 @@ if($Install) {
  if($LASTEXITCODE -ne 0) { throw 'Cannot read device CPU ABI' }
  if(-not $deviceAbi) { $deviceAbi = (& $adb -s $Serial shell getprop ro.product.cpu.abi | Out-String).Trim(); if($LASTEXITCODE -ne 0) { throw 'Cannot read device CPU ABI' } }
  if($deviceAbi -notmatch '(^|,)(arm64-v8a|armeabi-v7a)(,|$)') { throw 'This SDK package requires ARM64 or ARMv7; device ABI is incompatible' }
- Write-Host "Device compatibility precheck: Android API $sdkLevel, ABI $deviceAbi
+ Write-Host "Device compatibility precheck: Android API $sdkLevel, ABI $deviceAbi"
  $signers = @(Get-ChildItem (Join-Path $sdk 'build-tools') -Recurse -Filter apksigner.bat | Sort-Object FullName -Descending)
  if($signers.Count -eq 0) { throw 'apksigner missing' }
  & $signers[0].FullName verify --verbose $apk

@@ -37,6 +37,10 @@ public final class TerminalRuntime {
     private final java.util.Random jitter=new java.util.Random();
     private volatile boolean settingsOpen,platformSynced;
     private volatile boolean rosterReady;
+    private volatile String syncStep="尚未开始同步";
+    private long syncStepSince=SystemClock.elapsedRealtime();
+    private long lastSyncRequestMs,lastPersonnelBatchMs,lastPersonnelAckMs;
+    private void syncStep(String value){if(!value.equals(syncStep)){syncStep=value;syncStepSince=SystemClock.elapsedRealtime();}}
     private volatile long lastHeartbeat,lastHeartbeatWall,pendingEvents;
     private long lastLoadNotice;
     private volatile String overview="平台信息：等待同步";
@@ -65,10 +69,11 @@ public final class TerminalRuntime {
             .put("localFaces",store.faces()).put("loadedFaces",loadedFaces).put("loadTotal",loadTotal).put("loadElapsed",loadElapsed)
             .put("lastHeartbeat",lastHeartbeatWall).put("heartbeatAgeSeconds",lastHeartbeat==0?-1:(SystemClock.elapsedRealtime()-lastHeartbeat)/1000)
             .put("pendingEvents",session==null?0:store.pendingCount(session.getString("sessionId")))
+            .put("syncStep",syncStep).put("syncStepSeconds",Math.max(0,(SystemClock.elapsedRealtime()-syncStepSince)/1000)).put("lastSyncRequestMs",lastSyncRequestMs).put("lastPersonnelBatchMs",lastPersonnelBatchMs).put("lastPersonnelAckMs",lastPersonnelAckMs).put("syncFailures",syncFailures).put("retrySeconds",Math.max(0,(nextTick-SystemClock.elapsedRealtime()+999)/1000))
             .put("sync",uiProfile());
         // Whitelist only operational counts; no tokens, face features, people or event payloads.
         JSONObject profile=out.getJSONObject("sync");JSONObject counts=new JSONObject();
-        for(String key:new String[]{"pendingPeople","pendingReceipts","photoRejected","syncOperations"})if(profile.has(key))counts.put(key,profile.get(key));
+        for(String key:new String[]{"pendingPeople","pendingReceipts","photoRejected","syncOperations","roster"})if(profile.has(key))counts.put(key,profile.get(key));
         out.put("sync",counts);main.post(()->done.done(out,null));
     }catch(Exception e){main.post(()->done.done(null,"设备诊断暂不可用，请重试"));}});}
     public boolean hasSession(){return hasSession;}
@@ -152,7 +157,16 @@ public final class TerminalRuntime {
         }
         return true;
     }
+    private JSONObject syncAck(JSONObject ack) throws Exception {
+        long started=SystemClock.elapsedRealtime();
+        try{return client.request("/api/terminal/recovery/sync/ack",ack);}
+        finally{lastPersonnelAckMs=SystemClock.elapsedRealtime()-started;}
+    }
     private void syncPeople() throws Exception {
+        long started=SystemClock.elapsedRealtime();
+        try{syncPeopleBatch();}finally{lastPersonnelBatchMs=SystemClock.elapsedRealtime()-started;}
+    }
+    private void syncPeopleBatch() throws Exception {
         JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session)).getJSONArray("items");
         if(tasks.length()>0)ready=false;
         long batchStarted=SystemClock.elapsedRealtime();
@@ -177,12 +191,12 @@ public final class TerminalRuntime {
                 String person=task.optString("personName","待核对人员");
                 lastPhotoIssue=person+"："+safe(e);
                 ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
-                JSONObject rejected=client.request("/api/terminal/recovery/sync/ack",ack);
+                JSONObject rejected=syncAck(ack);
                 if(!rejected.optBoolean("acknowledged")||!rejected.optBoolean("photoRejected"))throw new IllegalStateException("照片失败回执未确认，请先更新配套平台");
                 emit("照片待处理："+lastPhotoIssue+"\n该人员不能刷脸，继续同步其他人员；后台更换照片后重试");
                 continue;
-            }catch(Exception e){ack.put("applied",false).put("error",safe(e));client.request("/api/terminal/recovery/sync/ack",ack);throw e;}
-            if(!client.request("/api/terminal/recovery/sync/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("人员任务回执尚未确认");
+            }catch(Exception e){ack.put("applied",false).put("error",safe(e));syncAck(ack);throw e;}
+            if(!syncAck(ack).optBoolean("acknowledged"))throw new IllegalStateException("人员任务回执尚未确认");
         }
     }
     private void acknowledge(JSONObject e,JSONObject response) throws Exception {
@@ -201,13 +215,16 @@ public final class TerminalRuntime {
         pendingEvents=store.pendingCount(session.getString("sessionId"));
         JSONObject request=TerminalProtocol.ref(session).put("appVersion",TerminalProtocol.VERSION)
             .put("sdkStatus",engine.ready()?"READY":"MODEL_LOADING").put("localFaces",store.faces()).put("pendingEvents",pendingEvents);
+        long requestStarted=SystemClock.elapsedRealtime();
         JSONObject result=client.request("/api/terminal/heartbeat",request);
+        lastSyncRequestMs=SystemClock.elapsedRealtime()-requestStarted;
         JSONObject profile=result.optJSONObject("profile"),messages=result.optJSONObject("feedback");
         platformSynced=profile!=null&&profile.optLong("scenicId")>0&&!profile.optString("scenicName").isEmpty()
             &&profile.optLong("deviceId")==session.optLong("deviceId")
             &&profile.optString("accountName").equals(session.optString("username"))&&messages!=null;
         if(!platformSynced){ready=false;overview="平台信息未完整同步，请更新配套平台后重试";throw new IllegalStateException(overview);}
         JSONObject nextProfile=new JSONObject(profile.toString()).put("localFaces",store.faces()).put("pendingPeople",result.optLong("pendingPeople")).put("pendingReceipts",result.optLong("pendingReceipts")).put("sdkReady",engine.ready()).put("pendingEvents",pendingEvents).put("platformSynced",true);
+        if(result.has("roster"))nextProfile.put("roster",result.getJSONObject("roster"));
         if(result.has("syncOperations"))nextProfile.put("syncOperations",result.getJSONObject("syncOperations"));
         if(result.has("photoRejected"))nextProfile.put("photoRejected",result.getLong("photoRejected"));
         nextProfile.put("serverTime",result.optString("serverTime"));uiProfile=nextProfile;
@@ -227,14 +244,17 @@ public final class TerminalRuntime {
             +"\n领路人脸算法："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
             +"\n平台状态更新时间："+result.optString("serverTime")
             +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
-        emit(TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents));
+        String stage=TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents);
+        if(!rosterReady&&result.optJSONObject("roster")!=null)stage=result.getJSONObject("roster").optString("message",stage);
+        syncStep(ready()?"同步完成":!rosterReady?"等待平台生成人员清单":!engine.ready()?"加载本地特征":pendingPeople?"同步人员及回执":pendingEvents>0?"确认入园记录":"等待平台核验条件确认");
+        emit(stage);
     }
     private void tick(){
         if(session==null||!authorized||settingsOpen||SystemClock.elapsedRealtime()<nextTick)return;
         boolean failed=false;
         try {
             // Events can still drain even if the local algorithm cannot initialize.
-            upload();
+            syncStep("上传并确认本机入园记录");upload();
             // Retry release first: the server may have committed exit before its response was lost.
             if("DRAINING".equals(session.getString("state"))){
                 // A previous release probe requested sync; finish bounded restore without hammering release.
@@ -243,13 +263,13 @@ public final class TerminalRuntime {
             }
             if("ACTIVE".equals(session.optString("state")))ensureSharedLibrary();
             if(!platformSynced||(!ready&&SystemClock.elapsedRealtime()-lastHeartbeat>=10000))heartbeat(false);
-            if(!prepare())return;presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
+            syncStep("初始化算法与加载本地特征");if(!prepare())return;presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
-            if(pendingPeople)syncPeople();
+            if(pendingPeople){syncStep("下载人员并确认回执");syncPeople();}
             if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
-            heartbeat(true);
+            syncStep("获取平台核验条件");heartbeat(true);
             store.cleanup(System.currentTimeMillis());
-        }catch(Exception|LinkageError e){failed=true;ready=false;emit(safe(e)+"\n记录保留，将自动退避重试；暂不可通行");}
+        }catch(Exception|LinkageError e){failed=true;ready=false;emit("未完成步骤："+syncStep+"\n原因："+safe(e)+"\n本机记录保留，自动重试；重试倒计时见设备诊断，暂不可通行");}
         finally{
             syncFailures=failed?Math.min(8,syncFailures+1):0;
             boolean work=session!=null&&(!rosterReady||pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);

@@ -19,6 +19,10 @@ public final class TerminalSyncScheduleTest {
   check(TerminalSyncSchedule.stage(false,true,true,0,2,0).contains("回执"));
   check(TerminalSyncSchedule.stage(false,true,true,0,0,1).contains("入园记录"));
   check(!TerminalSyncSchedule.stage(false,true,true,0,0,0).contains("可以开始核验"));
+  check(TerminalSyncSchedule.uninstallNotice(3,true).contains("3条"));
+  check(TerminalSyncSchedule.uninstallNotice(0,true).contains("账号尚未退出"));
+  check(TerminalSyncSchedule.uninstallNotice(0,false).contains("当前未登录"));
+  check(TerminalSyncSchedule.uninstallNotice(3,true).contains("不能保证卸载后恢复"));
   System.out.println("PASS: idle cadence, backlog cadence, exponential backoff, cap and jitter");
  }
 }
