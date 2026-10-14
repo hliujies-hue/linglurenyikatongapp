@@ -4,6 +4,13 @@ $work = Join-Path $root 'demo-work'
 if(-not (Test-Path (Join-Path $work 'app\build.gradle'))) { throw 'Prepare demo-work first. Do not reimport over your working copy.' }
 $gradle = [IO.File]::ReadAllText((Join-Path $work 'app\build.gradle'))
 if($gradle -notmatch 'com\.lingluren\.yikatong\.terminal') { throw 'Application ID mismatch' }
+# Restore the vendor's complete parameter UI from the untouched local Demo.
+$originalSettings = Join-Path $root 'demo-local\settinglibrary\src\main'
+if(Test-Path $originalSettings) {
+ $settingsTarget = Join-Path $work 'settinglibrary\src\main'
+ New-Item -ItemType Directory -Force -Path $settingsTarget | Out-Null
+ Copy-Item -Path (Join-Path $originalSettings '*') -Destination $settingsTarget -Recurse -Force
+}
 $overlays = Join-Path $root 'overlays'
 # Only replace maintained overlay files. Preserve the remainder of the complete Demo.
 Get-ChildItem -LiteralPath $overlays -File -Recurse | ForEach-Object {
@@ -17,6 +24,7 @@ $xml = New-Object System.Xml.XmlDocument
 $xml.Load($path)
 $android = 'http://schemas.android.com/apk/res/android'
 $app = $xml.manifest.application
+[void]$app.SetAttribute('name',$android,'com.lingluren.yikatong.terminal.TerminalApplication')
 [void]$app.SetAttribute('allowBackup',$android,'false')
 [void]$app.SetAttribute('fullBackupContent',$android,'false')
 # Keep the SDK's fingerprint component, but remove public entry into Demo maintenance screens.
@@ -48,3 +56,18 @@ $xml.Save($path)
 Write-Host 'Demo overlay applied: real online activation, guarded terminal entry, private Demo screens.'
 Write-Host 'Session V2: SDK face sync, durable events, receipt confirmation and guarded account exit. Validate on the real phone before operational use.'
 
+
+# Close external entry into ALL original parameter screens after manifest merge.
+$settingsManifest = Join-Path $work 'settinglibrary\src\main\AndroidManifest.xml'
+$settingsXml = New-Object System.Xml.XmlDocument
+$settingsXml.Load($settingsManifest)
+foreach($screen in @($settingsXml.manifest.application.SelectNodes('activity'))) {
+ [void]$screen.SetAttribute('exported',$android,'false')
+}
+$settingsXml.Save($settingsManifest)
+$requiredScreens = @('SettingActivity','GateMinFaceActivity','GateConfigQualtifyActivity','FaceLivinessTypeActivity','GateFaceDetectActivity','GateLensSettingsActivity','FaceDetectAngleActivity','CameraDisplayAngleActivity','MirrorSettingActivity','PictureOptimizationActivity','LogSettingActivity','VersionMessageActivity')
+foreach($screen in $requiredScreens) {
+ $source = Join-Path $work ('settinglibrary\src\main\java\com\example\settinglibrary\' + $screen + '.java')
+ if(-not (Test-Path $source)) { throw "Original Demo parameter screen missing: $screen. Restore the complete Demo before building." }
+}
+Write-Host 'Administrator settings: online password gate, private Demo screens, foreground-only 10 minute session.'
