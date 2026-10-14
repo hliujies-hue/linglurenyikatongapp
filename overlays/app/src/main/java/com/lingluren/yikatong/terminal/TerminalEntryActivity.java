@@ -347,22 +347,25 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         resultView=text("正在核验，请保持稳定",18,Color.WHITE);resultView.setGravity(android.view.Gravity.CENTER);resultView.setMinHeight(dp(54));resultView.setPadding(dp(10),dp(12),dp(10),dp(12));resultView.setBackground(background(0xbb172737,0));FrameLayout.LayoutParams hint=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.BOTTOM);hint.setMargins(dp(30),0,dp(30),dp(20));frame.addView(resultView,hint);
         diagnosticView=text("识别完成后由平台确认入园权限",13,MUTED);diagnosticView.setGravity(android.view.Gravity.CENTER);diagnosticView.setPadding(dp(12),dp(12),dp(12),dp(12));shell.addView(diagnosticView);
         LinearLayout controls=new LinearLayout(this);controls.setPadding(dp(12),0,dp(12),dp(16));shell.addView(controls);String[] names={"暂停核验","下一位","重新核验"};for(int i=0;i<3;i++){final int action=i;Button button=new Button(this);styleButton(button);button.setTextSize(14);button.setText(names[i]);button.setTextColor(i==0?0xfff05d49:BLUE);button.setBackground(background(Color.WHITE,i==0?0xffff8e80:0xffc3daff));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(4),0,dp(4),0);controls.addView(button,lp);if(i==0)startButton=button;button.setOnClickListener(v->{if(action==0){if("暂停核验".contentEquals(startButton.getText())){camera.stop();startButton.setText("开始核验");resultView.setText("已暂停核验");}else startScanning();}else{if(!"暂停核验".contentEquals(startButton.getText()))startScanning();if("暂停核验".contentEquals(startButton.getText()))runtime.nextAttempt();}});}
+        Button switchLens=new Button(this);styleButton(switchLens);switchLens.setText("切换前 / 后摄像头");shell.addView(switchLens);
+        switchLens.setOnClickListener(v->{if(camera==null)return;boolean resume="暂停核验".contentEquals(startButton.getText());if(camera.selectOtherLens()){startButton.setText("开始核验");resultView.setText("已切换至"+camera.lensName()+"摄像头"+(resume?"":"，点击开始核验"));if(resume)startScanning();switchLens.setText("当前"+camera.lensName()+" · 切换摄像头");}});
         camera=new TerminalCamera(this,runtime,cameraPreview,error->{lastCameraError=error;diagnosticView.setText(error);startButton.setText("开始核验");});addSupport(shell);setContentView(shell);startScanning();
     }
     private boolean syncPage,maintenancePage;
     private String count(JSONObject data,String key){return data!=null&&data.has(key)&&!data.isNull(key)?String.valueOf(data.optLong(key)):"等待平台返回";}
     private void updateSync(){
         if(loadRing==null)return;
-        long total=runtime.loadTotal(),loaded=runtime.loadedFaces();loadRing.setProgress(loaded,total);
-        loadText.setText(loaded+" / "+total+" 人\n已用时 "+runtime.loadElapsed()/1000+" 秒");
-        JSONObject p=runtime.uiProfile(),ops=p.optJSONObject("syncOperations");
+        long total=runtime.loadTotal(),loaded=runtime.loadedFaces();JSONObject p=runtime.uiProfile();long local=p.optLong("localFaces");
+        boolean loadedReady=runtime.libraryReady(),failed=runtime.libraryFailed();loadRing.setState(loadedReady,failed);loadRing.setProgress(loadedReady?local:loaded,loadedReady?local:total);
+        loadText.setText(failed?"本地特征加载失败\n请打开设备诊断查看原因":loadedReady?(p.has("localFaces")?"当前本地特征："+local+" 人\n"+(local==0?"暂无可检索人员特征":"本地检索库已就绪"):"算法已就绪\n本地人数等待平台状态刷新"):(loaded+" / "+total+" 人\n加载用时 "+runtime.loadElapsed()/1000+" 秒"));
+        JSONObject ops=p.optJSONObject("syncOperations");
         if(syncValues!=null){syncValues[0].setText(count(ops,"upsert"));syncValues[1].setText(count(ops,"delete"));syncValues[2].setText(count(p,"pendingReceipts"));syncValues[3].setText(count(p,"pendingEvents"));syncValues[4].setText(count(p,"photoRejected"));}
-        syncDetail.setText("待同步人员任务："+count(p,"pendingPeople")+"\n平台配置："+(p.optBoolean("platformSynced")?"已同步":"等待同步")+"\n领路人脸算法："+(p.optBoolean("sdkReady")?"已就绪":"准备中")+"\n数据更新时间："+(p.optString("serverTime").isEmpty()?"尚未获取":p.optString("serverTime"))+"\n\n新增和更新合并为待写入；待回执可能与人员任务重叠。网络异常时保留最近数据，请重试同步。");
+        syncDetail.setText("待同步人员任务："+count(p,"pendingPeople")+"\n平台配置："+(p.optBoolean("platformSynced")?"已同步":"等待同步")+"\n领路人脸算法："+(p.optBoolean("sdkReady")?"已就绪":"准备中")+"\n数据更新时间："+(p.optString("serverTime").isEmpty()?"尚未获取":p.optString("serverTime"))+"\n\n新增和更新合并为待写入；待回执可能与人员任务重叠。网络异常时保留最近数据，请重试同步。照片待处理表示对应照片未通过算法处理；请管理员在设备人员同步页面查看原因并更换照片。");
     }
     private void showSyncPage(){
         LinearLayout root=page("人员同步");syncPage=true;status.setText(TerminalMessages.friendly(lastState));
         LinearLayout loading=card(root);label(loading,"本地检索库加载");LinearLayout progress=new LinearLayout(this);progress.setGravity(android.view.Gravity.CENTER_VERTICAL);loadRing=new TerminalProgressView(this);int ring=compact()?96:120;progress.addView(loadRing,new LinearLayout.LayoutParams(dp(ring),dp(ring)));loadText=text("",compact()?16:19,INK);loadText.setPadding(dp(16),0,0,0);progress.addView(loadText,new LinearLayout.LayoutParams(0,-2,1));loading.addView(progress);
-        LinearLayout changes=card(root);label(changes,"平台增量同步");syncValues=new TextView[5];String[] labels={"待写入人员","待删除人员","人员任务回执","核验记录待确认","照片待处理"};for(int i=0;i<labels.length;i++)syncValues[i]=row(changes,labels[i],"读取中…");
+        LinearLayout changes=card(root);label(changes,"平台增量同步");syncValues=new TextView[5];String[] labels={"待写入人员","待删除人员","人员任务回执","核验记录待确认","照片待处理（无法刷脸）"};for(int i=0;i<labels.length;i++)syncValues[i]=row(changes,labels[i],"读取中…");
         syncDetail=text("",13,MUTED);syncDetail.setPadding(0,dp(12),0,0);changes.addView(syncDetail);updateSync();
         LinearLayout note=card(root);note.setBackground(background(0xffe4f3ff,0));note.addView(text("本地特征已保存在设备中。重启后分批加载到算法内存，不重复下载照片；全部加载并同步完成后可开始核验。",14,MUTED));
         action(root,"立即同步",runtime::retry,false);action(root,"设备诊断",this::showDiagnostics,false);

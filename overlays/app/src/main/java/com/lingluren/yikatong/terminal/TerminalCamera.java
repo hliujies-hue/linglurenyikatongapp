@@ -5,24 +5,24 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.view.Surface;
 import android.view.TextureView;
-import com.example.datalibrary.threshold.SingleBaseConfig;
+
 
 /** Camera frames stay in RAM and are never written to the photo gallery. */
 @SuppressWarnings("deprecation")
 public final class TerminalCamera implements TextureView.SurfaceTextureListener {
     public interface Error {void show(String text);}
     private final Activity activity;private final TerminalRuntime runtime;private final TextureView view;private final Error error;
-    private Camera camera;private boolean wanted,previewOnly;private int rotation,bufferWidth,bufferHeight;
+    private Camera camera;private boolean wanted,previewOnly;private int rotation,bufferWidth,bufferHeight,selectedId=-1;
     public TerminalCamera(Activity activity,TerminalRuntime runtime,TextureView view,Error error){this.activity=activity;this.runtime=runtime;this.view=view;this.error=error;view.setSurfaceTextureListener(this);}
     public boolean preview(){previewOnly=true;wanted=true;if(view.isAvailable())open(view.getSurfaceTexture());return wanted;}
     public boolean start(){previewOnly=false;wanted=true;if(view.isAvailable())open(view.getSurfaceTexture());return wanted;}
     private void open(SurfaceTexture texture){
         if(camera!=null||!wanted)return;
         try{
-            int count=Camera.getNumberOfCameras(),id=SingleBaseConfig.getBaseConfig().getRBGCameraId();
-            if(id<0||id>=count){id=0;for(int i=0;i<count;i++){Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(i,info);if(info.facing==Camera.CameraInfo.CAMERA_FACING_FRONT){id=i;break;}}}
+            int count=Camera.getNumberOfCameras(),id=selectedId;
+            if(id<0||id>=count){id=0;for(int i=0;i<count;i++){Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(i,info);if(info.facing==Camera.CameraInfo.CAMERA_FACING_BACK){id=i;break;}}}
             if(count==0){stop();error.show("未检测到摄像头，请检查设备硬件或外接摄像头连接");return;}
-            Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(id,info);camera=Camera.open(id);
+            selectedId=id;Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(id,info);camera=Camera.open(id);
             Camera.Parameters p=camera.getParameters();Camera.Size best=null;long distance=Long.MAX_VALUE;
             for(Camera.Size size:p.getSupportedPreviewSizes()){long d=Math.abs((long)size.width*size.height-640L*480);if(d<distance){distance=d;best=size;}}
             if(best==null)throw new IllegalStateException("摄像头没有可用预览尺寸");
@@ -39,6 +39,23 @@ public final class TerminalCamera implements TextureView.SurfaceTextureListener 
             camera.setPreviewCallback((data,c)->{if(c==camera&&wanted&&!previewOnly)runtime.frame(data,actual.width,actual.height,rotation);});camera.startPreview();
         }catch(SecurityException e){stop();error.show("相机权限已关闭，请在系统应用权限中开启后重新核验");}
         catch(Exception e){stop();error.show("摄像头无法打开，请检查相机权限或关闭其他占用相机的应用");}
+    }
+    public boolean selectOtherLens(){
+        try{
+            int count=Camera.getNumberOfCameras();
+            Camera.CameraInfo current=new Camera.CameraInfo();
+            if(selectedId>=0&&selectedId<count)Camera.getCameraInfo(selectedId,current);
+            else current.facing=Camera.CameraInfo.CAMERA_FACING_BACK;
+            for(int i=0;i<count;i++){Camera.CameraInfo next=new Camera.CameraInfo();Camera.getCameraInfo(i,next);
+                if(next.facing!=current.facing){stop();selectedId=i;return true;}}
+            stop();error.show("未检测到另一方向的摄像头，无法切换前后置；可重新开始使用当前摄像头");
+        }catch(RuntimeException e){stop();error.show("读取前后置摄像头信息失败，请重新进入核验页面");}
+        return false;
+    }
+    public String lensName(){
+        if(selectedId<0)return "后置优先";
+        try{Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(selectedId,info);return info.facing==Camera.CameraInfo.CAMERA_FACING_FRONT?"前置":"后置";}
+        catch(RuntimeException e){return "未打开";}
     }
     private void fitPreview(){
         if(view.getWidth()==0||view.getHeight()==0||bufferWidth==0||bufferHeight==0)return;

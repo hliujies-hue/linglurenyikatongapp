@@ -82,6 +82,7 @@ public final class TerminalRuntime {
     private volatile JSONObject uiProfile=new JSONObject();
     private volatile long loadedFaces,loadTotal,loadElapsed;
     public JSONObject uiProfile(){try{return new JSONObject(uiProfile.toString());}catch(Exception e){return new JSONObject();}}
+    public boolean libraryReady(){return engine.ready();} public boolean libraryFailed(){return modelFailed;}
     public long loadedFaces(){return loadedFaces;} public long loadTotal(){return loadTotal;} public long loadElapsed(){return loadElapsed;}
 
     public void beginSettings(Done done){
@@ -247,6 +248,7 @@ public final class TerminalRuntime {
         String stage=TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents);
         if(!rosterReady&&result.optJSONObject("roster")!=null)stage=result.getJSONObject("roster").optString("message",stage);
         syncStep(ready()?"同步完成":!rosterReady?"等待平台生成人员清单":!engine.ready()?"加载本地特征":pendingPeople?"同步人员及回执":pendingEvents>0?"确认入园记录":"等待平台核验条件确认");
+        if(result.optLong("photoRejected")>0)stage+="\n另有"+result.optLong("photoRejected")+"项照片处理失败，对应人员暂不能刷脸；请管理员查看照片失败原因并更换照片";
         emit(stage);
     }
     private void tick(){

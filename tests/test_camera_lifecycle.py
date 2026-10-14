@@ -22,13 +22,13 @@ SOURCES = {
 'android/hardware/Camera.java': '''package android.hardware;
 import java.util.*;import android.graphics.SurfaceTexture;
 public class Camera {
- public static int count=1;public static boolean deny,unsupported;public static Camera last;
+ public static int count=1,opened=-1;public static boolean deny,unsupported;public static Camera last;
  public boolean failCleanup,released;public ErrorCallback error;public PreviewCallback preview;
  public interface ErrorCallback {void onError(int code,Camera c);}public interface PreviewCallback {void onPreviewFrame(byte[] b,Camera c);}
- public static class CameraInfo {public static final int CAMERA_FACING_FRONT=1;public int facing=1,orientation=90;}
+ public static class CameraInfo {public static final int CAMERA_FACING_FRONT=1,CAMERA_FACING_BACK=0;public int facing=1,orientation=90;}
  public static class Size {public int width=640,height=480;}
  public static class Parameters {public static final String FOCUS_MODE_CONTINUOUS_VIDEO="continuous-video";public List<Size> getSupportedPreviewSizes(){return Arrays.asList(new Size());}public List<Integer> getSupportedPreviewFormats(){return Arrays.asList(unsupported?99:17);}public List<String> getSupportedFocusModes(){return null;}public void setPreviewSize(int w,int h){}public void setPreviewFormat(int f){}public void setFocusMode(String f){}public Size getPreviewSize(){return new Size();}}
- public static int getNumberOfCameras(){return count;}public static void getCameraInfo(int i,CameraInfo info){}public static Camera open(int i){if(deny)throw new SecurityException();last=new Camera();return last;}
+ public static int getNumberOfCameras(){return count;}public static void getCameraInfo(int i,CameraInfo info){info.facing=i==0?CameraInfo.CAMERA_FACING_FRONT:CameraInfo.CAMERA_FACING_BACK;}public static Camera open(int i){if(deny)throw new SecurityException();opened=i;last=new Camera();return last;}
  public Parameters getParameters(){return new Parameters();}public void setParameters(Parameters p){}public void setDisplayOrientation(int r){}public void setPreviewTexture(SurfaceTexture t){}public void startPreview(){}
  public void setErrorCallback(ErrorCallback e){if(e==null&&failCleanup)throw new RuntimeException();error=e;}public void setPreviewCallback(PreviewCallback p){if(p==null&&failCleanup)throw new RuntimeException();preview=p;}public void stopPreview(){if(failCleanup)throw new RuntimeException();}public void release(){released=true;if(failCleanup)throw new RuntimeException();}
 }''',
@@ -49,6 +49,13 @@ public class CameraLifecycleTest {
   Camera.deny=true;check(!camera.start()&&error[0].contains("权限"),"revoked permission feedback");Camera.deny=false;
   Camera.unsupported=true;check(!camera.start()&&Camera.last.released&&error[0].contains("NV21"),"unsupported format closes camera");Camera.unsupported=false;
   check(camera.preview(),"preview");Camera.last.preview.onPreviewFrame(new byte[1],Camera.last);check(runtime.frames==1,"preview must not submit recognition frames");camera.stop();
+  Camera.count=2;TerminalCamera dual=new TerminalCamera(new Activity(),runtime,new TextureView(),s->error[0]=s);
+  check(dual.start()&&Camera.opened==1,"default rear even when camera zero is front");Camera rear=Camera.last;
+  check(dual.selectOtherLens()&&rear.released,"switch releases rear before opening front");
+  check(dual.start()&&Camera.opened==0,"manual switch front");
+  check(dual.selectOtherLens()&&dual.start()&&Camera.opened==1,"switch back rear");dual.stop();
+  Camera.count=1;TerminalCamera single=new TerminalCamera(new Activity(),runtime,new TextureView(),s->error[0]=s);
+  check(single.start()&&!single.selectOtherLens()&&Camera.last.released&&error[0].contains("另一方向"),"single camera fallback and explicit message");
   System.out.println("PASS: stale callbacks, cleanup exceptions, restart, permission, missing camera, NV21 and preview-only gate (fake Android)");
  }
 }'''
