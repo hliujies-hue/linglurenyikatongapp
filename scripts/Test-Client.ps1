@@ -15,7 +15,11 @@ try {
  $scheduleTest = Join-Path $root 'tests\TerminalSyncScheduleTest.java'
  $decision = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalDecisionText.java'
  $decisionTest = Join-Path $root 'tests\TerminalDecisionTextTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest
+ $resultType = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalResultType.java'
+ $resultTest = Join-Path $root 'tests\java\TerminalResultTypeTest.java'
+ $ledger = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalIndexLedger.java'
+ $ledgerTest = Join-Path $root 'tests\java\TerminalIndexLedgerTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
@@ -29,5 +33,9 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'Sync scheduling tests failed' }
  & java -cp $out TerminalDecisionTextTest
  if($LASTEXITCODE -ne 0) { throw 'Decision feedback tests failed' }
+ & java -cp $out TerminalResultTypeTest
+ if($LASTEXITCODE -ne 0) { throw 'Result category tests failed' }
+ & java -cp $out com.lingluren.yikatong.terminal.TerminalIndexLedgerTest
+ if($LASTEXITCODE -ne 0) { throw 'Native feature replay tests failed' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

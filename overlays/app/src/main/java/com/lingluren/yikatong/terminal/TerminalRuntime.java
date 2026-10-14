@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** One serial owner of camera decisions, native SDK, journal, synchronization and exit barrier. */
 public final class TerminalRuntime {
-    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open); void communication(String text); void diagnostics(String text); }
+    public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open,String type); void communication(String text); void diagnostics(String text); }
     public interface Done { void done(String error); }
     public interface Stats { void done(JSONObject data,String error); }
     private static TerminalRuntime instance;
@@ -160,13 +160,14 @@ public final class TerminalRuntime {
     }
     private void acknowledge(JSONObject e,JSONObject response) throws Exception {
         JSONObject ack=TerminalProtocol.ref(e).put("eventId",e.getString("eventId")).put("sequence",e.getLong("sequence")).put("receipt",response.getString("receipt"));
-        if(!client.request("/api/terminal/recovery/events/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("核验回执尚未确认");store.confirmed(e);pendingEvents=store.pendingCount(session.getString("sessionId"));
+        if(!client.request("/api/terminal/recovery/events/ack",ack).optBoolean("acknowledged"))throw new IllegalStateException("核验回执尚未确认");store.confirmed(e);pendingEvents=store.pendingCount(session.getString("sessionId"));if(e.optString("eventId").equals(latestOutcome.optString("eventId"))){latestOutcome=new JSONObject(latestOutcome.toString()).put("confirmed",true);emit(lastStatus);}
     }
     private void upload() throws Exception {
         for(JSONObject e:store.pending(session.getString("sessionId"))){
             JSONObject result=e.optJSONObject("savedResponse");e.remove("savedResponse");
             if(result==null){result=client.request("/api/terminal/recovery/events",e);store.receipt(e,result);}
-            acknowledge(e,result); // Recovery never displays PASS or repeats speech.
+            if(e.optString("eventId").equals(latestOutcome.optString("eventId"))){latestOutcome=new JSONObject(result.toString()).put("occurredAt",e.optString("occurredAt")).put("confirmed",false);emit(lastStatus);}
+            todayCache=null;acknowledge(e,result); // Recovery only refreshes receipt status, never displays PASS or repeats speech.
         }
     }
     private void heartbeat(boolean allowReady) throws Exception {
@@ -271,7 +272,7 @@ public final class TerminalRuntime {
             if(!match.present){gate.absent(now);return;}
             if(match.failure.startsWith("GUIDE_")){
                 boolean waiting=gate.observing();
-                if(waiting&&now-lastGuidance>800){lastGuidance=now;showResult(epoch,guidance(match.failure),"",false);}
+                if(waiting&&now-lastGuidance>800){lastGuidance=now;String guide=guidance(match.failure);main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(guide);});}
                 return;
             }
             if(!gate.decision(match.user,match.failure,now))return;
@@ -280,14 +281,14 @@ public final class TerminalRuntime {
             JSONObject event=store.event(match.user,failure),result=null;pendingEvents=store.pendingCount(session.getString("sessionId"));boolean saved=false;
             try{
                 result=client.request(online?"/api/terminal/verify":"/api/terminal/recovery/events",event);
-                store.receipt(event,result);saved=true;
+                store.receipt(event,result);todayCache=null;saved=true;latestOutcome=new JSONObject(result.toString()).put("occurredAt",event.optString("occurredAt")).put("confirmed",false);
                 boolean open=online&&TerminalProtocol.canOpen(result);
                 String display=result.optString("displayText",open?"核验成功，请通行":"暂不可通行");
                 if(!open)display=TerminalDecisionText.describe(match.user>0,result.optString("reason"),display);
-                showResult(epoch,result.optBoolean("duplicate")?"该记录已处理，请点击下一位或移开后重新核验":display+"\n再次测试请点击下一位，或移开人脸1.5秒",result.optBoolean("duplicate")?"":result.optString("speechText"),open);
+                showResult(epoch,result.optBoolean("duplicate")?"该记录已处理，请点击下一位或移开后重新核验":display,result.optBoolean("duplicate")?"":result.optString("speechText"),open,TerminalResultType.of(result.optString("result"),result.optString("reason"),result.optBoolean("duplicate")));
                 acknowledge(event,result);
             }catch(Exception e){
-                if(!saved){ready=false;localFeedback(epoch,"network","网络异常，暂不可通行");}
+                if(!saved){ready=false;localFeedback(epoch,"network","网络异常，暂不可通行",new JSONObject().put("eventId",event.getString("eventId")).put("occurredAt",event.optString("occurredAt")));}
                 // A saved first response is never re-presented if only its ACK failed.
                 emit("记录等待补传或确认："+safe(e));
             }
@@ -303,8 +304,15 @@ public final class TerminalRuntime {
             default:return "请露出完整五官，避免遮挡";
         }
     }
-    private void localFeedback(long epoch,String key,String fallback){JSONObject messages=feedback.optJSONObject("messages"),item=messages==null?null:messages.optJSONObject(key);showResult(epoch,item==null?fallback:item.optString("text",fallback),feedback.optBoolean("voiceEnabled",true)?(item==null?fallback:item.optString("speech")):"",false);}
-    private void showResult(long epoch,String text,String speech,boolean open){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(text,speech,open);});}
+    private void localFeedback(long epoch,String key,String fallback){localFeedback(epoch,key,fallback,new JSONObject());}
+    private void localFeedback(long epoch,String key,String fallback,JSONObject outcome){latestOutcome=outcome;JSONObject messages=feedback.optJSONObject("messages"),item=messages==null?null:messages.optJSONObject(key);showResult(epoch,item==null?fallback:item.optString("text",fallback),feedback.optBoolean("voiceEnabled",true)?(item==null?fallback:item.optString("speech")):"",false,key);}
+    private void showResult(long epoch,String text,String speech,boolean open){showResult(epoch,text,speech,open,open?"pass":"denied");}
+    private void showResult(long epoch,String text,String speech,boolean open,String type){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(text,speech,open,type);});}
+    private volatile JSONObject latestOutcome=new JSONObject();
+    public JSONObject outcome(){try{return new JSONObject(latestOutcome.toString());}catch(Exception e){return new JSONObject();}}
+    public boolean voiceAllowed(){return feedback.optBoolean("voiceEnabled",true);}
+    private JSONObject todayCache;private String todayCacheSession="",todayCacheDay="";private long todayCachedAt;
+    public void today(Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);fmt.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));String day=fmt.format(new java.util.Date()),id=session.getString("sessionId");if(todayCache==null||!id.equals(todayCacheSession)||!day.equals(todayCacheDay)||SystemClock.elapsedRealtime()-todayCachedAt>15000){todayCache=client.request("/api/terminal/today",null);todayCacheSession=id;todayCacheDay=day;todayCachedAt=SystemClock.elapsedRealtime();}JSONObject result=new JSONObject(todayCache.toString());main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     public void localRecords(Stats done){actor.execute(()->{try{
         if(session==null)throw new IllegalStateException("请先登录");
         JSONObject result=store.dashboard(session.getString("sessionId"));

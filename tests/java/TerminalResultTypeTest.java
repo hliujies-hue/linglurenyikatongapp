@@ -1,0 +1,4 @@
+import com.lingluren.yikatong.terminal.TerminalResultType;
+public class TerminalResultTypeTest {
+ public static void main(String[] args){String[][] rows={{"DENY","NO_MATCH","noMatch"},{"DENY","NOT_EFFECTIVE","notEffective"},{"DENY","ENTRY_INTERVAL","interval"},{"DENY","TERMINAL_SINGLE_POINT","singlePoint"},{"PASS","OK","pass"},{"DENY","SINGLE_POINT_OTHER_GATE","singlePoint"},{"DENY","LIVENESS_FAILED","liveness"},{"DENY","EXPIRED","expired"},{"DENY","DAILY_LIMIT","quota"},{"DENY","NO_ENTITLEMENT","restricted"}};for(String[] row:rows){if(!row[2].equals(TerminalResultType.of(row[0],row[1],false)))throw new AssertionError(row[1]);}if(!"duplicate".equals(TerminalResultType.of("PASS","OK",true)))throw new AssertionError("repeat PASS displayed");System.out.println("PASS: result categories and retry suppression");}
+}

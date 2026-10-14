@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 114
-        versionName "0.5.2-index-retry"
+        versionCode 115
+        versionName "0.6.0-result-ui"
         multiDexEnabled true
 
         ndk {
