@@ -41,7 +41,14 @@ if(-not (Test-Path -LiteralPath $signing)) {
 Push-Location $work
 try {
  & .\gradlew.bat --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
- if($LASTEXITCODE -ne 0) { throw 'Demo build failed; do not install an older APK' }
+ if($LASTEXITCODE -ne 0) {
+  $lintReport = Join-Path $work 'app\build\intermediates\lint_intermediate_text_report\release\lint-results-release.txt'
+  if(Test-Path -LiteralPath $lintReport) {
+   Write-Host ('Lint report (may include previous run results): '+$lintReport)
+   Get-Content -LiteralPath $lintReport -Encoding UTF8 | Select-String -Pattern 'Error:|^\s*\^|errors,.*warnings' -Context 0,2
+  }
+  throw 'Demo build failed; do not install an older APK'
+ }
  $apk = Join-Path $work 'app\build\outputs\apk\release\app-release.apk'
  if(-not (Test-Path $apk)) { throw 'APK not found' }
  $tools = @(Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Recurse -Filter 'apksigner.bat' | Sort-Object FullName -Descending)

@@ -184,3 +184,10 @@ Git核对：平台远端main为8ccab5d294bc5c8641eadf2d2943d22134bb5d9c，上一
 ### 2026-10-14 10:24 用户授权替代同步方式
 
 用户明确允许本次使用已连接的GitHub工具同步两端代码。发布以已核对的远端交付基线为父提交，保留既有历史，分支更新使用预期SHA校验且禁止强推。服务器与Windows后续拉取仍使用SSH；提交包含[skip ci]。远端提交和分支核对完成后给出完整锁定版本更新命令；代码发布不代表部署或真机验收完成。
+
+
+### APP-026 / 2026-10-14 Windows Release Lint反馈
+
+用户在已发布7f581c8版本运行Release构建，8组主机测试通过，但lintRelease报告17个错误，首项为TerminalEntryActivity.setOrientation(1)的WrongConstant，因此未进入安装。修正11处方向数字常量、6处字体样式数字常量，并将重力常量改为Android命名常量，保持数值和布局行为一致。Build-Demo.ps1在构建失败时输出Lint错误及其上下文，保留lintRelease门禁，不添加baseline或关闭错误检查。
+
+验证：维护Java以实际Android29/百度SDK依赖编译成功；git diff --check通过。尚未取得用户完整17项报告，本环境未运行完整Gradle lintRelease/APK构建，不能宣称17项全部已通过；需Windows重新构建确认。平台无需重复更新，原签名与覆盖安装流程保持。发布父提交7f581c8ec9452998560e8e89374c18e0a30e1b6b。
