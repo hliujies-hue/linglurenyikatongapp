@@ -30,6 +30,8 @@ public final class TerminalFaceEngine {
         if(!done.await(45,TimeUnit.SECONDS))throw new IllegalStateException(stage+"超时，请重启应用后重试");
         if(code[0]!=0)throw new IllegalStateException(stage+"失败（"+code[0]+"）");
     }
+    private final TerminalIndexLedger indexLedger=new TerminalIndexLedger();
+    private final TerminalIndexLedger.NativeIndex nativeIndex=new TerminalIndexLedger.NativeIndex(){public int push(int id,byte[] f){return search.pushPersonById(id,f);}public int delete(int id){return search.delPersonById(id);}};
     public boolean ready(){return ready;}
     public interface Progress {void update(long loaded,long total,long elapsed);}
     public void init(Context context,TerminalStore store,Progress progress) throws Exception {
@@ -41,11 +43,11 @@ public final class TerminalFaceEngine {
         await(cb->live.initModel(context,GlobalSet.LIVE_VIS_MODEL,"","","",GlobalSet.LIVE_NIR_MODEL,GlobalSet.LIVE_DEPTH_MODEL,cb),"活体模型加载");
         await(cb->feature.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,GlobalSet.RECOGNIZE_NIR_MODEL,"",cb),"特征模型加载");
         search.setNeedJoinDB(false);search.setMaxUpdateSize(0);
-        check(search.featureClear(),"检索库清空");
+        check(search.featureClear(),"检索库清空");indexLedger.clear();
         long total=store.faces(),loaded=0,started=android.os.SystemClock.elapsedRealtime(),last=started;
         progress.update(0,total,0);
         try(Cursor rows=store.allFaces()){while(rows.moveToNext()){
-            check(search.pushPersonById(rows.getInt(0),rows.getBlob(1)),"检索库恢复");loaded++;
+            check(indexLedger.restore(nativeIndex,rows.getInt(0),rows.getBlob(1)),"检索库恢复");loaded++;
             long now=android.os.SystemClock.elapsedRealtime();
             if(now-last>=500){progress.update(loaded,total,now-started);last=now;}
         }}
@@ -60,7 +62,7 @@ public final class TerminalFaceEngine {
     private void check(int code,String operation){if(code!=0){ready=false;throw new IllegalStateException(operation+"失败（"+code+"），禁止确认人员任务");}}
     private static boolean finite(float n){return !Float.isNaN(n)&&!Float.isInfinite(n);}
     private void require(){if(!ready)throw new IllegalStateException("算法尚未就绪");}
-    public void reset(TerminalStore store){require();check(search.featureClear(),"检索库重置");store.clearFaces();}
+    public void reset(TerminalStore store){require();check(search.featureClear(),"检索库重置");indexLedger.clear();store.clearFaces();}
     private FaceInfo[] detect(BDFaceImageInstance image){
         BDFaceDetectListConf flags=new BDFaceDetectListConf();flags.usingDetect=true;flags.usingAlign=true;flags.usingQuality=true;flags.usingHeadPose=true;
         return detect.detect(BDFaceSDKCommon.DetectType.DETECT_VIS,BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_ACCURATE,image,null,flags);
@@ -81,8 +83,8 @@ public final class TerminalFaceEngine {
     public boolean reuse(TerminalStore store,long user,String hash){
         require();byte[] cached=store.faceFeature(user,hash);
         if(cached==null||cached.length!=TerminalSdkContract.FEATURE_BYTES)return false;
-        // Reapply to native search before ACK, including recovery after process death.
-        check(search.pushPersonById(store.faceId(user),cached),"缓存人员特征恢复");return true;
+        // init restores native membership after process death; retries reuse only successful IDs.
+        check(indexLedger.restore(nativeIndex,store.faceId(user),cached),"缓存人员特征恢复");return true;
     }
     public void upsert(TerminalStore store,long user,String hash,byte[] photo) throws Exception {
         require();BitmapFactory.Options dimensions=new BitmapFactory.Options();dimensions.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(photo,0,photo.length,dimensions);
@@ -100,13 +102,13 @@ public final class TerminalFaceEngine {
             if(face.bluriness>limits.getBlur())throw new PhotoRejectedException("人脸照片模糊，请重新拍摄");
             if(face.illum<limits.getIllumination())throw new PhotoRejectedException("人脸光照不足，请更换明亮照片");
             if(!quality(face))throw new PhotoRejectedException("人脸存在遮挡或质量检测未通过，请露出完整五官");
-            byte[] template=feature(image,faces[0]);int id=store.saveFace(user,hash,template);check(search.pushPersonById(id,template),"人员特征入库");
+            byte[] template=feature(image,faces[0]);int id=store.saveFace(user,hash,template);check(indexLedger.replace(nativeIndex,id,template),"人员特征入库");
         }finally{if(image!=null)image.destory();bitmap.recycle();}
     }
     public void delete(TerminalStore store,long user){
         require();int id=store.faceId(user);if(id==0)return;
         // Persist removal first: a process death cannot restore a revoked feature.
-        store.deleteFace(user);check(search.delPersonById(id),"人员特征删除");
+        store.deleteFace(user);check(indexLedger.remove(nativeIndex,id),"人员特征删除");
     }
     public static final class Match {
         public final boolean present;public final long user;public final String failure;
