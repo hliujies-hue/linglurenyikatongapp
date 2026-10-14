@@ -140,13 +140,24 @@ public final class TerminalStore extends SQLiteOpenHelper {
         try(Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*),COALESCE(SUM(CASE WHEN instr(response,'\"result\":\"PASS\"')>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN response IS NULL THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN instr(response,'\"reason\":\"NOT_EFFECTIVE\"')>0 OR instr(response,'\"reason\":\"NOT_YET_EFFECTIVE\"')>0 THEN 1 ELSE 0 END),0) FROM events WHERE session_id=? AND created_at>=?",new String[]{sessionID,Long.toString(day.getTimeInMillis())})){
             c.moveToFirst();data.put("today",c.getLong(0)).put("passed",c.getLong(1)).put("awaiting",c.getLong(2)).put("notEffective",c.getLong(3)).put("denied",c.getLong(0)-c.getLong(1)-c.getLong(2)-c.getLong(3));
         }
+        java.util.HashSet<Long> pendingPeople=new java.util.HashSet<>();
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT payload,response FROM events WHERE session_id=? AND created_at>=? AND response IS NOT NULL",new String[]{sessionID,Long.toString(day.getTimeInMillis())})){
+            while(c.moveToNext()) { JSONObject reply=new JSONObject(c.getString(1));String reason=reply.optString("reason");long user=new JSONObject(c.getString(0)).optLong("userId");
+                if(user>0 && ("NOT_EFFECTIVE".equals(reason)||"NOT_YET_EFFECTIVE".equals(reason)))pendingPeople.add(user);
+            }
+        }
+        data.put("notEffectivePeople",pendingPeople.size());
+        java.util.HashSet<String> shownPending=new java.util.HashSet<>();
         org.json.JSONArray items=new org.json.JSONArray();
         SimpleDateFormat format=new SimpleDateFormat("MM-dd HH:mm:ss",Locale.CHINA);format.setTimeZone(day.getTimeZone());
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT payload,response,confirmed_at,created_at FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT 20",new String[]{sessionID})){
-            while(c.moveToNext()){
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT payload,response,confirmed_at,created_at FROM events WHERE session_id=? ORDER BY sequence DESC",new String[]{sessionID})){
+            while(items.length()<20 && c.moveToNext()){
                 JSONObject row=new JSONObject().put("time",format.format(new Date(c.getLong(3)))).put("confirmed",!c.isNull(2));
                 if(c.isNull(1))row.put("text","等待平台处理 / 补传");
                 else {JSONObject reply=new JSONObject(c.getString(1)),event=new JSONObject(c.getString(0));
+                    String reason=reply.optString("reason");long user=event.optLong("userId");
+                    String dayKey=Long.toString((c.getLong(3)+8L*60*60*1000)/(24L*60*60*1000));
+                    if(user>0 && !c.isNull(2) && ("NOT_EFFECTIVE".equals(reason)||"NOT_YET_EFFECTIVE".equals(reason)) && !shownPending.add(dayKey+":"+user))continue;
                     row.put("pass","PASS".equals(reply.optString("result"))).put("title",TerminalResultType.title(TerminalResultType.of(reply.optString("result"),reply.optString("reason"),false)));
                     row.put("text","PASS".equals(reply.optString("result"))?"平台记录：核验通过":TerminalDecisionText.describe(event.optLong("userId")>0,reply.optString("reason"),reply.optString("displayText","未放行")));
                 }

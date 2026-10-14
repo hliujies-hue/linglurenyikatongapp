@@ -165,7 +165,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(8),dp(12),dp(8));root.setBackground(background(home?Color.WHITE:0xfff0f7ff,0));LinearLayout.LayoutParams content=new LinearLayout.LayoutParams(-1,-2);content.topMargin=-dp(8);outer.addView(root,content);
         communication=text(runtime.communicationStatus(),12,MUTED);communication.setPadding(dp(4),0,0,dp(6));root.addView(communication);communication.setVisibility(android.view.View.GONE);
         status=text("",13,MUTED);status.setPadding(dp(4),0,dp(4),dp(8));root.addView(status);
-        if(runtime.hasSession()&&navigation){LinearLayout nav=new LinearLayout(this);nav.setBackgroundColor(Color.WHITE);String[] names={"核验","记录","维护"},icons={"home","record","settings"};int selected=home?0:title.contains("记录")?1:2;for(int i=0;i<3;i++){final int index=i;LinearLayout tab=new LinearLayout(this);tab.setOrientation(LinearLayout.VERTICAL);tab.setGravity(android.view.Gravity.CENTER);int tint=i==selected?BLUE:MUTED;tab.addView(new TerminalIconView(this,icons[i],tint),new LinearLayout.LayoutParams(dp(23),dp(23)));TextView caption=text(names[i],11,tint);caption.setPadding(0,dp(5),0,0);tab.addView(caption);nav.addView(tab,new LinearLayout.LayoutParams(0,dp(59),1));tab.setOnClickListener(v->{if(index==0)showAccount();else if(index==1)showLocalRecords();else showMaintenance();});}shell.addView(nav);}
+        if(runtime.hasSession()&&navigation){LinearLayout nav=new LinearLayout(this);nav.setBackgroundColor(Color.WHITE);String[] names={"核验","记录","维护"},icons={"home","record","settings"};int selected=home?0:title.contains("记录")?1:2;for(int i=0;i<3;i++){final int index=i;LinearLayout tab=new LinearLayout(this);tab.setOrientation(LinearLayout.VERTICAL);tab.setGravity(android.view.Gravity.CENTER);int tint=i==selected?BLUE:MUTED;tab.addView(new TerminalIconView(this,icons[i],tint),new LinearLayout.LayoutParams(dp(23),dp(23)));TextView caption=text(names[i],11,tint);caption.setPadding(0,dp(5),0,0);caption.setGravity(android.view.Gravity.CENTER);tab.addView(caption,new LinearLayout.LayoutParams(-1,-2));nav.addView(tab,new LinearLayout.LayoutParams(0,dp(59),1));tab.setOnClickListener(v->{if(index==0)showAccount();else if(index==1)showLocalRecords();else showMaintenance();});}shell.addView(nav,new LinearLayout.LayoutParams(-1,-2));}
         setContentView(shell);return root;
     }
     private boolean cameraAllowed(){return Build.VERSION.SDK_INT<23||checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}
@@ -298,19 +298,19 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         camera=new TerminalCamera(this,runtime,preview,error->{guide.setText(error);});if(cameraAllowed())camera.preview();
         startButton=action(root,runtime.ready()?"开始核验":"查看同步进度",()->{if(!runtime.ready()){showSyncPage();return;}if(cameraAllowed())showScan();else requestCamera(true);},true);
         LinearLayout metrics=new LinearLayout(this);metrics.setPadding(0,dp(10),0,dp(6));root.addView(metrics);String[] keys={"passedPeople","passed","denied","notEffective"},labels={"通过人数","通过人次","今日拒绝","今日待生效"},metricIcons={"person","check","alert","clock"};int[] colors={0xff00b96b,BLUE,0xffee8240,0xffe9a100},fills={0xffedfaf5,0xffedf5ff,0xfffff2ec,0xfffff8e8};TextView[] values=new TextView[4];
-        for(int i=0;i<4;i++){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(android.view.Gravity.CENTER);box.setPadding(dp(2),dp(7),dp(2),dp(7));box.setBackground(background(fills[i],0));box.addView(new TerminalIconView(this,metricIcons[i],colors[i]),new LinearLayout.LayoutParams(dp(20),dp(20)));TextView n=text("—",23,INK);n.setTypeface(null,android.graphics.Typeface.BOLD);n.setGravity(android.view.Gravity.CENTER);n.setPadding(0,dp(5),0,dp(5));values[i]=n;n.setMaxLines(1);if(Build.VERSION.SDK_INT>=26)n.setAutoSizeTextTypeUniformWithConfiguration(14,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);box.addView(n,new LinearLayout.LayoutParams(-1,dp(34)));TextView caption=text(labels[i],11,MUTED);caption.setGravity(android.view.Gravity.CENTER);box.addView(caption);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(i==0?0:dp(4),0,i==3?0:dp(4),0);metrics.addView(box,lp);}
-        TextView scope=text("正在读取当前账号今日统计…",11,MUTED);root.addView(scope);final int version=pageVersion;
+        for(int i=0;i<4;i++){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(android.view.Gravity.CENTER);box.setPadding(dp(2),dp(7),dp(2),dp(7));box.setBackground(background(fills[i],0));box.addView(new TerminalIconView(this,metricIcons[i],colors[i]),new LinearLayout.LayoutParams(dp(20),dp(20)));TextView n=text("—",23,INK);n.setTypeface(null,android.graphics.Typeface.BOLD);n.setGravity(android.view.Gravity.CENTER);n.setPadding(0,dp(5),0,dp(5));values[i]=n;n.setMaxLines(1);if(Build.VERSION.SDK_INT>=26)n.setAutoSizeTextTypeUniformWithConfiguration(14,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);box.addView(n,new LinearLayout.LayoutParams(-1,-2));TextView caption=text(labels[i],11,MUTED);caption.setGravity(android.view.Gravity.CENTER);box.addView(caption,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(i==0?0:dp(4),0,i==3?0:dp(4),0);metrics.addView(box,lp);}
+        TextView scope=text("正在读取景区共享统计…",12,MUTED);scope.setPadding(dp(3),dp(8),dp(3),dp(12));scope.setLineSpacing(dp(3),1);root.addView(scope,new LinearLayout.LayoutParams(-1,-2));final int version=pageVersion;
         refreshHomeStatistics=new Runnable(){public void run(){
             if(destroyed||pageVersion!=version||!foreground)return;
             runtime.today((data,error)->{
                 if(destroyed||pageVersion!=version||!foreground)return;
                 JSONObject counts=data==null?null:data.optJSONObject("counts");
                 if(error!=null||counts==null){for(TextView value:values)value.setText("—");scope.setText(error!=null?"统计暂不可用 · 将自动重试":"统计格式不匹配，请更新平台");}
-                else{for(int i=0;i<4;i++)values[i].setText(String.valueOf(counts.optLong(keys[i])));scope.setText(data.optString("date")+" · 当前账号 · 人数去重 / 人次不去重");}
+                else{for(int i=0;i<4;i++)values[i].setText(String.valueOf(counts.optLong(keys[i])));scope.setText(data.optString("date")+" · "+data.optString("scopeText","统计范围待确认")+"\n通过人数、待生效按人去重；通过人次不去重");}
                 main.removeCallbacks(this);main.postDelayed(this,16000);
             });
         }};if(foreground)refreshHomeStatistics.run();
-        LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);summary.setPadding(dp(3),dp(8),dp(3),0);root.addView(summary);label(summary,"最近核验记录");runtime.localRecords((data,error)->{if(destroyed||pageVersion!=version)return;if(error!=null){summary.addView(text(error,13,MUTED));return;}JSONArray rows=data.optJSONArray("items");if(rows==null||rows.length()==0)summary.addView(text("本机当前会话暂无记录",13,MUTED));else for(int i=0;i<Math.min(3,rows.length());i++){JSONObject r=rows.optJSONObject(i);if(r==null)continue;LinearLayout line=new LinearLayout(this);line.setGravity(android.view.Gravity.CENTER_VERTICAL);boolean pass=r.optBoolean("pass");line.addView(new TerminalIconView(this,pass?"check":"alert",pass?0xff00bd79:0xffff6b43),new LinearLayout.LayoutParams(dp(18),dp(18)));TextView time=text(r.optString("time"),12,MUTED);time.setPadding(dp(10),0,dp(6),0);line.addView(time,new LinearLayout.LayoutParams(0,dp(30),1));time.setGravity(android.view.Gravity.CENTER_VERTICAL);TextView outcome=text(r.optString("title",r.optString("text")),12,pass?0xff00ac6d:0xffd56640);line.addView(outcome);summary.addView(line);}TextView more=text("本机当前会话 · 查看全部  ›",12,BLUE);more.setPadding(0,dp(8),0,0);summary.addView(more);more.setOnClickListener(v->showLocalRecords());});
+        LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);summary.setPadding(dp(3),dp(8),dp(3),0);root.addView(summary);label(summary,"本机最近核验");runtime.localRecords((data,error)->{if(destroyed||pageVersion!=version)return;if(error!=null){summary.addView(text(error,13,MUTED));return;}JSONArray rows=data.optJSONArray("items");if(rows==null||rows.length()==0)summary.addView(text("本机当前会话暂无记录",13,MUTED));else for(int i=0;i<Math.min(3,rows.length());i++){JSONObject r=rows.optJSONObject(i);if(r==null)continue;LinearLayout line=new LinearLayout(this);line.setGravity(android.view.Gravity.CENTER_VERTICAL);boolean pass=r.optBoolean("pass");line.addView(new TerminalIconView(this,pass?"check":"alert",pass?0xff00bd79:0xffff6b43),new LinearLayout.LayoutParams(dp(18),dp(18)));TextView time=text(r.optString("time"),12,MUTED);time.setPadding(dp(10),0,dp(6),0);line.addView(time,new LinearLayout.LayoutParams(0,dp(30),1));time.setGravity(android.view.Gravity.CENTER_VERTICAL);TextView outcome=text(r.optString("title",r.optString("text")),12,pass?0xff00ac6d:0xffd56640);line.addView(outcome);summary.addView(line);}TextView more=text("本机记录 · 查看全部  ›",12,BLUE);more.setPadding(0,dp(8),0,0);summary.addView(more);more.setOnClickListener(v->showLocalRecords());});
     }
     private void showScan(){
         if(!runtime.ready()){showSyncPage();return;}page("人脸核验",false);scanPage=true;
@@ -349,21 +349,24 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
 
     private void showLocalRecords(){
         LinearLayout root=page("本机记录与维护");int version=pageVersion;
-        TextView summary=new TextView(this);summary.setTextSize(16);summary.setTextColor(Color.rgb(45,65,95));root.addView(summary);
+        LinearLayout summaryCard=card(root);label(summaryCard,"本机记录概览");TextView summary=text("正在加载…",15,INK);summary.setLineSpacing(dp(5),1);summaryCard.addView(summary);
         Button refresh=new Button(this);refresh.setText("刷新记录");styleButton(refresh);root.addView(refresh);
         Button retry=new Button(this);retry.setText("重试同步与回执");styleButton(retry);root.addView(retry);retry.setOnClickListener(v->runtime.retry());
-        TextView rows=new TextView(this);rows.setTextSize(15);rows.setTextColor(Color.rgb(45,65,95));rows.setPadding(0,dp(16),0,dp(16));root.addView(rows);
+        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);rows.setPadding(0,dp(12),0,dp(8));root.addView(rows);
         refresh.setOnClickListener(v->{refresh.setEnabled(false);runtime.localRecords((data,error)->{
             if(destroyed||pageVersion!=version)return;refresh.setEnabled(true);
             if(error!=null){status.setText(error);return;}
-            status.setText("今日按北京时间统计，仅当前登录会话、本机记录；景区全量统计请返回查看景区入园统计。通过数为平台记录结果，不代表重复回执再次放行。");
-            summary.setText("今日记录："+data.optLong("today")+" · 通过："+data.optLong("passed")+" · 拒绝："+data.optLong("denied")+" · 今日待生效："+data.optLong("notEffective")+" · 待处理："+data.optLong("awaiting")
+            status.setText("本页为本机当前会话记录；首页为景区共享统计。待生效同人同日合并展示，原始回执保留。");
+            summary.setText("本机原始记录："+data.optLong("today")+" 条\n通过："+data.optLong("passed")+" 次    拒绝："+data.optLong("denied")+" 次\n待生效："+data.optLong("notEffectivePeople")+" 人    待处理："+data.optLong("awaiting")+" 条"
                 +"\n未确认回执："+data.optLong("pending")+" · 本地特征："+data.optLong("localFaces")
                 +"\n人员库："+("SHARED".equals(data.optString("libraryMode"))?"同平台共享，换号保留":"旧版会话库")
                 +"\nSDK："+(data.optBoolean("sdkReady")?"就绪":"未就绪")+" · APP："+data.optString("appVersion"));
-            StringBuilder text=new StringBuilder("最近20条当前会话记录\n\n");JSONArray items=data.optJSONArray("items");
-            if(items!=null)for(int i=0;i<items.length();i++){JSONObject row=items.optJSONObject(i);if(row!=null)text.append(row.optString("time")).append(" · ").append(row.optBoolean("confirmed")?"已确认":"待确认").append("\n").append(row.optString("text")).append("\n\n");}
-            rows.setText(text);
+            rows.removeAllViews();label(rows,"最近核验记录");JSONArray items=data.optJSONArray("items");
+            if(items==null||items.length()==0)rows.addView(text("暂无本机会话记录",14,MUTED));
+            if(items!=null)for(int i=0;i<items.length();i++){JSONObject item=items.optJSONObject(i);if(item==null)continue;
+                LinearLayout record=card(rows);TextView time=text(item.optString("time")+" · "+(item.optBoolean("confirmed")?"已确认":"待确认"),12,MUTED);record.addView(time);
+                TextView detail=text(item.optString("text"),15,item.optBoolean("pass")?0xff009c69:INK);detail.setPadding(0,dp(8),0,0);detail.setLineSpacing(dp(3),1);record.addView(detail);
+            }
         });});
         Button back=new Button(this);back.setText("返回设备状态");styleButton(back);root.addView(back);back.setOnClickListener(v->showAccount());refresh.performClick();
     }
