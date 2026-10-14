@@ -550,7 +550,12 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private void addVoiceToggle(LinearLayout box){
         LinearLayout line=new LinearLayout(this);line.setGravity(android.view.Gravity.CENTER_VERTICAL);TextView title=text("开启语音播报",16,INK);line.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         Switch toggle=new Switch(new android.view.ContextThemeWrapper(this,android.R.style.Theme_Material_Light_NoActionBar));toggle.setText("");toggle.setShowText(false);toggle.setSwitchMinWidth(dp(52));toggle.setMinHeight(dp(48));toggle.setChecked(localVoice());toggle.setContentDescription("开启或关闭本机核验语音");
-        int[][] states={new int[]{android.R.attr.state_checked},new int[]{}};toggle.setThumbTintList(new android.content.res.ColorStateList(states,new int[]{BLUE,0xff8995a5}));toggle.setTrackTintList(new android.content.res.ColorStateList(states,new int[]{0xff9bc5ff,0xffd7dfe9}));
+        int[][] states={new int[]{android.R.attr.state_checked},new int[]{}};
+        // Drawable tinting supports API 21; Switch tint setters require API 23.
+        // Mutate each instance so the colors cannot affect another control.
+        android.graphics.drawable.Drawable thumb=toggle.getThumbDrawable(),track=toggle.getTrackDrawable();
+        if(thumb!=null)thumb.mutate().setTintList(new android.content.res.ColorStateList(states,new int[]{BLUE,0xff8995a5}));
+        if(track!=null)track.mutate().setTintList(new android.content.res.ColorStateList(states,new int[]{0xff9bc5ff,0xffd7dfe9}));
         line.addView(toggle,new LinearLayout.LayoutParams(-2,-2));box.addView(line,new LinearLayout.LayoutParams(-1,-2));toggle.setOnCheckedChangeListener((v,on)->{getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",on).apply();if(!on)stopSpeech();updateVoiceStatus();});title.setOnClickListener(v->toggle.setChecked(!toggle.isChecked()));
     }
     private void showVoiceSettings(){

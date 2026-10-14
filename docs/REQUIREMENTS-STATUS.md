@@ -248,3 +248,13 @@ APP-020部分交付：新增维护→记录备份与恢复，系统文档选择�
 5. P2：识别率/误拒绝分析与阈值调优、红外/深度等硬件接入。维持用户既定优先级，本轮不调整识别或活体阈值。
 
 官方依据：https://developer.android.com/reference/android/speech/tts/TextToSpeech.Engine （Android 11+ TTS服务可见性声明）。代码发布后仍按“先平台、后APP覆盖安装”，保留原正式签名、授权和私有数据库。
+
+### APP-026 / APP-030续：2026-10-14 13:50 Release Lint两项API兼容错误
+
+用户上传完整Windows构建日志：faaccdc5630df739abbff2bde2508daaf7d323d2的10组主机测试与Java编译完成，但lintRelease阻断，两项均位于TerminalEntryActivity.addVoiceToggle：Switch.setThumbTintList与setTrackTintList要求API23，而应用minSdk为21。402项Warning并非此次阻断原因。此问题由上一轮开关配色新增代码遗漏最低版本兼容引入，不能把此前Java编译通过写成Lint通过。
+
+修复：改用API21已支持的Drawable.setTintList，分别对thumb/track实例mutate后设置开关状态颜色；保留Material开关尺寸、点击、语音开关持久化和最低Android5.0支持。未提高minSdk、未禁用NewApi、未添加Lint baseline。Build-Demo仅输出Error及两行上下文和汇总，移除匹配所有警告定位符号^的条件，避免数百警告淹没真实错误；构建失败仍阻止安装旧APK。
+
+版本0.7.1-lintfix / 120，前置faaccdc5630df739abbff2bde2508daaf7d323d2。验证：维护Java在现有Android29/百度SDK8.5实际依赖下重新编译通过；两处API23 Switch着色调用已移除；git diff --check通过。Android官方Drawable/Switch文档核对替代API支持级别。当前环境无完整Android构建链及PowerShell，未执行完整lintRelease/APK/签名/安装、脚本运行或真机试听；需Windows按锁定提交复跑。此次仅APP修补，平台c511901c9656c9cc1e718d79039d4412367baa6b无需重复部署。正式签名、授权、人员库和未确认记录保持。
+
+API依据：https://developer.android.com/reference/android/graphics/drawable/Drawable#setTintList(android.content.res.ColorStateList) ；https://developer.android.com/reference/android/widget/Switch#getThumbDrawable() 。本节随修复代码同提交留痕。

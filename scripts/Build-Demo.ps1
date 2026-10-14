@@ -45,7 +45,14 @@ try {
   $lintReport = Join-Path $work 'app\build\intermediates\lint_intermediate_text_report\release\lint-results-release.txt'
   if(Test-Path -LiteralPath $lintReport) {
    Write-Host ('Lint report (may include previous run results): '+$lintReport)
-   Get-Content -LiteralPath $lintReport -Encoding UTF8 | Select-String -Pattern 'Error:|^\s*\^|errors,.*warnings' -Context 0,2
+   $lintErrors = @(Select-String -LiteralPath $lintReport -Encoding UTF8 -Pattern '\bError:' -Context 0,2)
+   foreach($issue in $lintErrors) {
+    Write-Host $issue.Line
+    foreach($line in $issue.Context.PostContext) { Write-Host $line }
+    Write-Host ''
+   }
+   Select-String -LiteralPath $lintReport -Encoding UTF8 -Pattern '^\s*\d+ errors?,.*warnings?' | ForEach-Object { Write-Host $_.Line }
+   if($lintErrors.Count -eq 0) { Write-Host 'No error entry in this Lint report; check the Gradle failure above.' }
   }
   throw 'Demo build failed; do not install an older APK'
  }
