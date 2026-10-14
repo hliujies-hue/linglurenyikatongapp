@@ -312,6 +312,13 @@ public final class TerminalRuntime {
     public JSONObject outcome(){try{return new JSONObject(latestOutcome.toString());}catch(Exception e){return new JSONObject();}}
     public boolean voiceAllowed(){return feedback.optBoolean("voiceEnabled",true);}
     private JSONObject todayCache;private String todayCacheSession="",todayCacheDay="";private long todayCachedAt;
+    public void recordBackup(android.net.Uri uri,char[] password,boolean restore,String origin,String fingerprint,Done done){
+        pauseCamera();actor.execute(()->{try{
+            if(restore){try(java.io.InputStream in=context.getContentResolver().openInputStream(uri)){if(in==null)throw new IllegalStateException("无法读取备份文件");byte[] plain=TerminalBackupCrypto.decrypt(in,password);try{int count=store.restoreRecords(new JSONObject(new String(plain,"UTF-8")),origin,fingerprint);emit("已合并恢复"+count+"条记录，正在核对平台回执");}finally{java.util.Arrays.fill(plain,(byte)0);}}ready=false;nextTick=0;todayCache=null;}
+            else {byte[] plain=store.backupRecords(origin,fingerprint).toString().getBytes("UTF-8");try(java.io.OutputStream out=context.getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IllegalStateException("无法写入备份文件");TerminalBackupCrypto.encrypt(plain,password,out);}finally{java.util.Arrays.fill(plain,(byte)0);}}
+            complete(done,null);
+        }catch(Exception e){complete(done,safe(e));}finally{java.util.Arrays.fill(password,'\0');}});
+    }
     public void today(Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);fmt.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));String day=fmt.format(new java.util.Date()),id=session.getString("sessionId");if(todayCache==null||!id.equals(todayCacheSession)||!day.equals(todayCacheDay)||SystemClock.elapsedRealtime()-todayCachedAt>15000){todayCache=client.request("/api/terminal/today",null);todayCacheSession=id;todayCacheDay=day;todayCachedAt=SystemClock.elapsedRealtime();}JSONObject result=new JSONObject(todayCache.toString());main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     public void localRecords(Stats done){actor.execute(()->{try{
         if(session==null)throw new IllegalStateException("请先登录");
@@ -321,7 +328,7 @@ public final class TerminalRuntime {
     }catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     public void statistics(String from,String to,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject result=client.statistics(from,to);main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
     private void failure(Throwable e){emit(safe(e));}
-    private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":m;}
+    private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":TerminalMessages.friendly(m);}
     private void complete(Done done,String error){main.post(()->done.done(error));}
     private void emit(String text){lastStatus=text;boolean active=hasSession,can=ready();main.post(()->{Listener l=listener;if(l!=null)l.status(text,can,active);});}
 }

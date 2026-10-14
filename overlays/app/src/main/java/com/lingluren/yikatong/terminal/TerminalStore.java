@@ -132,6 +132,36 @@ public final class TerminalStore extends SQLiteOpenHelper {
         int id=faceId(user);if(id==0){long next=getWritableDatabase().insertOrThrow("faces",null,v);if(next>Integer.MAX_VALUE)throw new IllegalStateException("本地人脸编号达到上限");return (int)next;}
         getWritableDatabase().update("faces",v,"local_id=?",new String[]{Integer.toString(id)});return id;
     }
+    public JSONObject backupRecords(String origin,String fingerprint)throws Exception {
+        JSONObject active=active();if(active==null)throw new IllegalStateException("请先登录原账号后备份记录");
+        if(!origin.equals(active.optString("origin"))||!fingerprint.equals(active.optString("fingerprint")))throw new IllegalStateException("设备或平台不一致");
+        org.json.JSONArray rows=new org.json.JSONArray();long bytes=0;
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT sequence,event_id,payload,response,confirmed_at,created_at FROM events WHERE session_id=? ORDER BY sequence",new String[]{active.getString("sessionId")})){
+            while(c.moveToNext()){
+                JSONObject row=new JSONObject().put("sequence",c.getLong(0)).put("eventId",c.getString(1)).put("payload",c.getString(2)).put("response",c.isNull(3)?JSONObject.NULL:c.getString(3)).put("confirmedAt",c.isNull(4)?JSONObject.NULL:c.getLong(4)).put("createdAt",c.getLong(5));
+                bytes+=row.toString().getBytes("UTF-8").length;if(bytes>24L*1024*1024)throw new IllegalStateException("记录超过备份容量，请联系管理员归档");rows.put(row);
+            }
+        }
+        return new JSONObject().put("format",1).put("origin",origin).put("fingerprint",fingerprint).put("sessionId",active.getString("sessionId")).put("createdAt",System.currentTimeMillis()).put("events",rows);
+    }
+    public int restoreRecords(JSONObject archive,String origin,String fingerprint)throws Exception {
+        JSONObject active=active();if(active==null)throw new IllegalStateException("请先登录原账号；本功能不恢复卸载后丢失的会话");
+        String id=active.getString("sessionId");
+        if(archive.optInt("format")!=1||!origin.equals(archive.optString("origin"))||!fingerprint.equals(archive.optString("fingerprint"))||!id.equals(archive.optString("sessionId"))||!origin.equals(active.optString("origin"))||!fingerprint.equals(active.optString("fingerprint")))throw new IllegalStateException("备份必须属于本设备、本平台及当前会话");
+        org.json.JSONArray rows=archive.getJSONArray("events");SQLiteDatabase db=getWritableDatabase();db.beginTransaction();int added=0;
+        try{for(int i=0;i<rows.length();i++){
+            JSONObject row=rows.getJSONObject(i),event=new JSONObject(row.getString("payload"));long seq=row.getLong("sequence");
+            if(seq<1||seq>active.getLong("lastSequence")||!id.equals(event.optString("sessionId"))||seq!=event.optLong("sequence")||!row.getString("eventId").equals(event.optString("eventId")))throw new IllegalStateException("备份记录序号或会话不匹配，未恢复任何记录");
+            try(Cursor existing=db.rawQuery("SELECT event_id,payload FROM events WHERE session_id=? AND sequence=?",new String[]{id,Long.toString(seq)})){
+                if(existing.moveToFirst()){if(!row.getString("eventId").equals(existing.getString(0))||!row.getString("payload").equals(existing.getString(1)))throw new IllegalStateException("备份与现有记录冲突，未覆盖原记录");continue;}
+            }
+            if(!row.isNull("response"))TerminalProtocol.validateReceipt(event,new JSONObject(row.getString("response")));
+            ContentValues v=new ContentValues();v.put("session_id",id);v.put("sequence",seq);v.put("event_id",row.getString("eventId"));v.put("payload",row.getString("payload"));v.put("created_at",row.getLong("createdAt"));
+            if(!row.isNull("response"))v.put("response",row.getString("response"));
+            // Reconfirm restored receipts with the platform. Never treat restoration as new admission.
+            db.insertOrThrow("events",null,v);added++;
+        }db.setTransactionSuccessful();return added;}finally{db.endTransaction();}
+    }
     public JSONObject dashboard(String sessionID) throws Exception {
         java.util.Calendar day=java.util.Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
         day.set(java.util.Calendar.HOUR_OF_DAY,0);day.set(java.util.Calendar.MINUTE,0);day.set(java.util.Calendar.SECOND,0);day.set(java.util.Calendar.MILLISECOND,0);

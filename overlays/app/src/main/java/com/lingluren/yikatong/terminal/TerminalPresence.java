@@ -47,7 +47,7 @@ final class TerminalPresence {
             JSONObject result=new PlatformClient(origin).request("/api/terminal/presence",body);
             if(!result.optBoolean("connected"))throw new IllegalStateException("平台尚未确认设备通信");
             publish("平台通信：在线 · "+result.optString("deviceName")+("DISABLED".equals(result.optString("deviceStatus"))?"（后台已停用核验）":""));
-        }catch(Exception e){publish("平台通信：未连接 · "+(e.getMessage()==null?"网络异常，将自动重试":e.getMessage()));}
+        }catch(Exception e){publish("平台通信：未连接 · "+TerminalMessages.friendly(e.getMessage()));}
     }
     private void publish(String text){status=text;main.post(()->listener.changed(text));}
 }

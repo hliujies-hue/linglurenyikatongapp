@@ -68,4 +68,12 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
   assertEquals(0,store.dashboard(repeat("d",48)).getInt("today"));
   assertEquals(3,data.getJSONArray("items").length());
  }
+ public void testRecordArchiveMergeAndScope()throws Exception {
+  String id=repeat("a",48),origin="https://example.com",fp="journal-test-phone-1";
+  store.bind(session(id).put("origin",origin));JSONObject e=store.event(42,"NO_MATCH");store.receipt(e,receipt(e));store.confirmed(e);
+  JSONObject archive=store.backupRecords(origin,fp);assertEquals(0,store.restoreRecords(archive,origin,fp));
+  try{store.restoreRecords(archive,origin,"other-device");fail("cross-device restore");}catch(IllegalStateException expected){}
+  store.getWritableDatabase().delete("events","session_id=?",new String[]{id});assertEquals(1,store.restoreRecords(archive,origin,fp));assertEquals(1,store.pendingCount(id));assertEquals(0,store.restoreRecords(archive,origin,fp));
+  assertEquals(2,store.event(43,"NO_MATCH").getLong("sequence"));
+ }
 }
