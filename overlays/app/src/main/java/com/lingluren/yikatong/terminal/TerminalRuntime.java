@@ -36,6 +36,7 @@ public final class TerminalRuntime {
     private int syncFailures;
     private final java.util.Random jitter=new java.util.Random();
     private volatile boolean settingsOpen,platformSynced;
+    private volatile boolean rosterReady;
     private volatile long lastHeartbeat,lastHeartbeatWall,pendingEvents;
     private long lastLoadNotice;
     private volatile String overview="平台信息：等待同步";
@@ -60,7 +61,7 @@ public final class TerminalRuntime {
         JSONObject out=presence.diagnostics();
         out.put("appVersion",TerminalProtocol.VERSION).put("authorized",authorized).put("hasSession",hasSession)
             .put("sdkReady",engine.ready()).put("modelFailed",modelFailed).put("loading",engine.loading())
-            .put("ready",ready()).put("settingsOpen",settingsOpen).put("platformSynced",platformSynced)
+            .put("rosterReady",rosterReady).put("ready",ready()).put("settingsOpen",settingsOpen).put("platformSynced",platformSynced)
             .put("localFaces",store.faces()).put("loadedFaces",loadedFaces).put("loadTotal",loadTotal).put("loadElapsed",loadElapsed)
             .put("lastHeartbeat",lastHeartbeatWall).put("heartbeatAgeSeconds",lastHeartbeat==0?-1:(SystemClock.elapsedRealtime()-lastHeartbeat)/1000)
             .put("pendingEvents",session==null?0:store.pendingCount(session.getString("sessionId")))
@@ -111,7 +112,7 @@ public final class TerminalRuntime {
             catch(Exception e){next.logout();throw e;}
             if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){next.logout();throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
-            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
+            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
         }catch(Exception e){complete(done,safe(e));}});
     }
     private void ensureSharedLibrary() throws Exception {
@@ -212,6 +213,7 @@ public final class TerminalRuntime {
         nextProfile.put("serverTime",result.optString("serverTime"));uiProfile=nextProfile;
         feedback=messages;store.metadata("feedback",feedback.toString(),true);
         lastHeartbeat=SystemClock.elapsedRealtime();lastHeartbeatWall=System.currentTimeMillis();
+        rosterReady=result.optBoolean("rosterReady");
         pendingPeople=result.optLong("pendingSync")>0;
         ready=allowReady&&result.optBoolean("productionReady")&&"ACTIVE".equals(session.optString("state"))&&pendingEvents==0;
         String rule=profile.optString("ruleType");
@@ -225,7 +227,7 @@ public final class TerminalRuntime {
             +"\n领路人脸算法："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
             +"\n平台状态更新时间："+result.optString("serverTime")
             +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
-        emit(ready()?"信息与人员同步已完成，可以开始核验":"等待同步完成，暂不可开始核验");
+        emit(TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents));
     }
     private void tick(){
         if(session==null||!authorized||settingsOpen||SystemClock.elapsedRealtime()<nextTick)return;
@@ -250,7 +252,7 @@ public final class TerminalRuntime {
         }catch(Exception|LinkageError e){failed=true;ready=false;emit(safe(e)+"\n记录保留，将自动退避重试；暂不可通行");}
         finally{
             syncFailures=failed?Math.min(8,syncFailures+1):0;
-            boolean work=session!=null&&(pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);
+            boolean work=session!=null&&(!rosterReady||pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);
             boolean loading=session!=null&&engine.loading()&&!modelFailed&&!failed;
             nextTick=SystemClock.elapsedRealtime()+(loading?25:TerminalSyncSchedule.delay(work,syncFailures,jitter.nextInt(5000)));
             if(loading&&!restoreContinuationQueued){restoreContinuationQueued=true;actor.schedule(()->{restoreContinuationQueued=false;tick();},25,TimeUnit.MILLISECONDS);}
@@ -290,7 +292,7 @@ public final class TerminalRuntime {
         JSONObject current=store.active();
         JSONObject result=client.request("/api/terminal/recovery/release",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
         if(!result.optBoolean("released"))throw new IllegalStateException("原账号同步尚未完成");
-        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;platformSynced=false;lastHeartbeat=0;lastHeartbeatWall=0;overview="平台信息：未登录";uiProfile=new JSONObject();scanning=false;emit("同步与回执已完成，可以登录其他账号");
+        store.state(current.getString("sessionId"),"RELEASED");client.logout();session=null;hasSession=false;ready=false;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;overview="平台信息：未登录";uiProfile=new JSONObject();scanning=false;emit("同步与回执已完成，可以登录其他账号");
     }
     public void frame(byte[] bytes,int width,int height,int rotation){
         if(!scanning||!authorized||!engine.ready()||!frameQueued.compareAndSet(false,true))return;
