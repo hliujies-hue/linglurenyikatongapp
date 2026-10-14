@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $root 'demo-work'
+$verified = Join-Path $work 'app\build\outputs\apk\release\app-release.verified.json'
+if(Test-Path -LiteralPath $verified) { Remove-Item -LiteralPath $verified -Force }
 if(-not (Test-Path (Join-Path $work 'gradlew.bat'))) { throw 'Demo working copy missing' }
 if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.exe'))) {
  $candidate = Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
@@ -62,6 +64,14 @@ try {
  if($tools.Count -eq 0) { throw 'apksigner missing' }
  & $tools[0].FullName verify --verbose --print-certs $apk
  if($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
+ $aapt = Join-Path $tools[0].DirectoryName 'aapt.exe'
+ if(-not (Test-Path -LiteralPath $aapt)) { throw 'aapt missing; cannot verify final APK permissions' }
+ $permissions = & $aapt dump permissions $apk
+ if($LASTEXITCODE -ne 0) { throw 'Cannot inspect final APK permissions' }
+ if(($permissions | Out-String) -match 'android\.permission\.READ_PHONE_STATE') { throw 'READ_PHONE_STATE still present in final APK; fingerprint compatibility fix was not applied' }
+ $apkHash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash
+ $receipt = @{ sha256=$apkHash; verifiedAt=[DateTimeOffset]::Now.ToString('o'); phonePermissionRemoved=$true } | ConvertTo-Json
+ [IO.File]::WriteAllText($verified,$receipt,(New-Object Text.UTF8Encoding($false)))
  Get-FileHash -LiteralPath $apk -Algorithm SHA256
  Write-Host ('APK: '+$apk)
  Write-Host 'Session V2 APK built. Deploy matching platform first; complete real-phone activation, sync, admission, restart, offline retry and account-switch checks.'

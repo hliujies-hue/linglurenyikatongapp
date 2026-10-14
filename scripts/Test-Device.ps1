@@ -12,6 +12,17 @@ if(-not $Serial) {
 if($Install) {
  $apk = Join-Path $root 'demo-work\app\build\outputs\apk\release\app-release.apk'
  if(-not (Test-Path $apk)) { throw 'Build release APK first' }
+ $receiptPath = Join-Path $root 'demo-work\app\build\outputs\apk\release\app-release.verified.json'
+ if(-not (Test-Path -LiteralPath $receiptPath)) { throw 'Run Build-Demo successfully before installing; no verified build receipt found' }
+ $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+ if($receipt.sha256 -ne (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash -or -not $receipt.phonePermissionRemoved) { throw 'APK differs from verified build; rebuild before installation' }
+ $sdkLevel = (& $adb -s $Serial shell getprop ro.build.version.sdk | Out-String).Trim()
+ if($LASTEXITCODE -ne 0 -or $sdkLevel -notmatch '^\d+$' -or [int]$sdkLevel -lt 21) { throw 'Android 5.0 / API 21 or newer is required' }
+ $deviceAbi = (& $adb -s $Serial shell getprop ro.product.cpu.abilist | Out-String).Trim()
+ if($LASTEXITCODE -ne 0) { throw 'Cannot read device CPU ABI' }
+ if(-not $deviceAbi) { $deviceAbi = (& $adb -s $Serial shell getprop ro.product.cpu.abi | Out-String).Trim(); if($LASTEXITCODE -ne 0) { throw 'Cannot read device CPU ABI' } }
+ if($deviceAbi -notmatch '(^|,)(arm64-v8a|armeabi-v7a)(,|$)') { throw 'This SDK package requires ARM64 or ARMv7; device ABI is incompatible' }
+ Write-Host "Device compatibility precheck: Android API $sdkLevel, ABI $deviceAbi
  $signers = @(Get-ChildItem (Join-Path $sdk 'build-tools') -Recurse -Filter apksigner.bat | Sort-Object FullName -Descending)
  if($signers.Count -eq 0) { throw 'apksigner missing' }
  & $signers[0].FullName verify --verbose $apk

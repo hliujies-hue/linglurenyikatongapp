@@ -24,6 +24,27 @@ $xml = New-Object System.Xml.XmlDocument
 $xml.Load($path)
 $android = 'http://schemas.android.com/apk/res/android'
 $app = $xml.manifest.application
+# Baidu Android FAQ: READ_PHONE_STATE can prevent fingerprint acquisition on some Android 10+ ROMs.
+# Remove the unused phone permission across manifest merging; do not wipe licenses or change SDK fingerprint mode.
+$toolsNs = 'http://schemas.android.com/tools'
+foreach($permission in @($xml.manifest.SelectNodes('uses-permission'))) {
+ if($permission.GetAttribute('name',$android) -eq 'android.permission.READ_PHONE_STATE') { [void]$xml.manifest.RemoveChild($permission) }
+}
+$removePhone = $xml.CreateElement('uses-permission')
+[void]$removePhone.SetAttribute('name',$android,'android.permission.READ_PHONE_STATE')
+$removeAttr = $xml.CreateAttribute('tools','node',$toolsNs);$removeAttr.Value='remove'
+[void]$removePhone.Attributes.Append($removeAttr)
+[void]$xml.manifest.InsertBefore($removePhone,$app)
+# Camera choice is runtime-dependent; front/autofocus hardware must not block installation on other terminals.
+foreach($feature in @($xml.manifest.SelectNodes('uses-feature'))) {
+ if($feature.GetAttribute('name',$android) -like 'android.hardware.camera*') { [void]$feature.SetAttribute('required',$android,'false') }
+}
+# The vendor fingerprint Activity must remain present; fail build instead of silently shipping incomplete auth.
+$lhFound = $false
+foreach($screen in @($app.SelectNodes('activity'))) {
+ if($screen.GetAttribute('name',$android) -eq 'com.baidu.liantian.LiantianActivity') { $lhFound=$true }
+}
+if(-not $lhFound) { throw 'Baidu fingerprint Activity missing. Restore the complete original Demo manifest before building.' }
 # Android 11+ hides TTS services unless explicitly declared (targetSdk 31).
 $queries = $xml.manifest.SelectSingleNode('queries')
 if($null -eq $queries) {

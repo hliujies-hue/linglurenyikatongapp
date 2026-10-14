@@ -298,6 +298,7 @@ public final class TerminalRuntime {
         actor.execute(()->{try{
             if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.getString("state")))return;
             TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);long now=SystemClock.elapsedRealtime();
+            if(!scanning||epoch!=viewEpoch)return; // Ignore a native result that finished after pause/page change.
             if(now-lastDiagnostics>=800){
                 lastDiagnostics=now;String info=engine.diagnostics()+(match.failure.startsWith("GUIDE_")?" · "+guidance(match.failure):"");
                 main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(info);});

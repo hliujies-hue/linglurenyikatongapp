@@ -258,3 +258,57 @@ APP-020部分交付：新增维护→记录备份与恢复，系统文档选择�
 版本0.7.1-lintfix / 120，前置faaccdc5630df739abbff2bde2508daaf7d323d2。验证：维护Java在现有Android29/百度SDK8.5实际依赖下重新编译通过；两处API23 Switch着色调用已移除；git diff --check通过。Android官方Drawable/Switch文档核对替代API支持级别。当前环境无完整Android构建链及PowerShell，未执行完整lintRelease/APK/签名/安装、脚本运行或真机试听；需Windows按锁定提交复跑。此次仅APP修补，平台c511901c9656c9cc1e718d79039d4412367baa6b无需重复部署。正式签名、授权、人员库和未确认记录保持。
 
 API依据：https://developer.android.com/reference/android/graphics/drawable/Drawable#setTintList(android.content.res.ColorStateList) ；https://developer.android.com/reference/android/widget/Switch#getThumbDrawable() 。本节随修复代码同提交留痕。
+
+### APP-034 / APP-035：2026-10-14 多设备诊断、相机生命周期与独立APK导出
+
+用户要求继续完善剩余功能并提出建议，接续0.7.1-lintfix/120。本轮版本0.7.2-device-tools/121。修改前逐项核对GitHub main的Camera、EntryActivity、Protocol、build.gradle、README和本台账blob，与本地继承快照一致。旧日志的两项Switch API23错误已在0.7.1源码修复；完整Windows Lint复跑仍不能据此认定通过。
+
+| 编号 | 实现入口与本轮行为 | 实际验证与边界 |
+|---|---|---|
+| APP-034 | TerminalCamera：只接收当前相机实例的错误/预览回调，旧实例延迟错误不能关闭新实例，旧帧不能送入核验；清除回调、停止预览、释放逐步容错，某一步异常仍尝试释放；无相机、权限撤销、不支持NV21分别提示 | 新增tests/test_camera_lifecycle.py，以替身Android相机执行真实TerminalCamera源码，覆盖陈旧回调、释放异常、重开、权限、无硬件、格式与仅预览门槛。不是实际相机兼容性测试；外接USB摄像头是否经系统Camera API暴露仍取决于设备 |
+| APP-035 | 设备诊断新增型号/ABI、Java堆当前占用及上限、原生堆已分配、系统可用内存、应用分区剩余空间及最近相机异常；支持通过系统文件选择器导出TXT快照 | 仅导出屏幕已展示的状态和计数，不导出人脸、证件、账号、照片、特征、设备指纹、会话或凭据；选择器期间固定快照。进程被系统回收后不写空快照，提示重新导出。不是历史日志；不是峰值内存/PSS/20万库性能报告 |
+| APP-036 | scripts/Export-Apk.ps1：要求已有正式签名配置，复用Build-Demo全部检查，通过后复制APK到桌面Yikatong-APK独立时间目录，并输出SHA256、版本、提交及工作区状态；不含密钥和授权文件 | 复制后校验哈希；失败不导出旧包。脚本仅静态检查，当前无Windows PowerShell，未实际打包或执行导出 |
+
+实际验证：Android29/百度SDK类路径的维护Java编译通过；既有10组纯Java主机测试通过；新增相机生命周期替身测试通过；git diff --check通过。没有运行完整Gradle lintRelease、APK签名构建、Android仪器测试、文件选择器、双机安装或相机真机验收。本轮不改变平台协议，不调整识别和活体阈值，不声称恢复卸载数据或实现实时推送。
+
+交付状态：当前环境GitHub SSH连接在DNS解析阶段失败（Could not resolve hostname github.com）。按SSH交付约定仅完成本地Git提交，未推送；不得把本地提交号写成可从origin拉取的发布号。生成独立补丁便于保留或在Windows应用；补丁须先git apply --check，不能覆盖本地改动。恢复SSH后须重新对照远端并提交推送，禁止force推送覆盖他人更新。
+
+剩余功能与建议（未完成）：
+1. P0真机验收：至少两台不同型号，检查中文语音/静音/蓝牙、相机权限撤销与前后台、不同字体和横竖屏、断网补传不二次放行、景区共享统计。通过、未生效、未匹配、间隔限制、单点限制分别留证，不用“启动成功”替代核验验收。
+2. P1完整卸载恢复：先设计平台审批/原设备校验、会话代次、事件序号和回执对账、密钥恢复及中断续作；现有备份只合并原会话记录，暂不允许借恢复迁移人脸库或绕过账号授权。
+3. P1容量与稳定性：分阶段实测1万/5万/10万/20万真实授权特征，记录冷启动总时长、进程内存峰值、失败数及同步时延，并做强杀重启/低存储/弱网测试。本轮内存快照只辅助定位，不作为容量承诺。
+4. P1平台集成：为跨日、单点、重复间隔、并发核验与回执幂等配置隔离MySQL测试库，执行之前明确跳过的测试；不在生产库做测试数据清理或压力测试。
+5. P2长连接通知：先完成会话鉴权、事件代次、重连补拉、退避和轮询兜底，再替换空查；保留实时平台权益判断，不改成无条件离线放行。
+6. P2诊断历史：如需历史日志，追加固定字段的有界环形日志、限额轮换及脱敏导出，避免直接导出含个人或凭据的系统Logcat。当前TXT仅状态快照。
+
+### APP-037 / P0：2026-10-14 其他设备首次激活1007与机型测试完善
+
+证据：用户15:25上传的新设备激活截图显示1007。随附AuthLibrary/CodeDetail.java定义DEVICES_ID_NOT_ERROR=1007；BdFaceAuth.initLicenseOnLine在getDeviceId为空时立即回调该值，早于联网序列号校验。它不等于授权码错误、已被其他设备绑定或服务器已拒绝授权。当前APP的默认“核对授权码”误导已修正。SDK设备指纹与平台ANDROID_ID标识是两条用途不同的链路，禁止替换混用。
+
+百度官方Android FAQ 3.1说明部分Android10以上设备声明READ_PHONE_STATE时可能取不到指纹，建议移除该权限。随附Demo的app/registerlibrary/identifylibrary均声明该权限。本次以主Manifest的tools:node=remove合并规则移除，不申请电话权限；Build-Demo使用aapt检查最终APK不得仍包含该权限，检查不到就停止交付。保留现有SDK、mIdFlag、License缓存和原授权信息。官方FAQ包含卸载建议，但本项目存在未确认记录，本轮不提供卸载/清数据操作。该兼容性原因与本机实际失败是否完全一致，需要新包在故障设备复测，不能写成已确认唯一根因。
+
+版本0.7.3-activation/122。实现：
+- TerminalLicenseManager由应用Context持有，授权组件延迟在工作线程创建；授权前通过原BdFaceAuth.getDeviceId路径最多8次间隔重试。取得真实SDK指纹后才调用原SDK激活，不伪造指纹、不设置成功兜底、不改变授权绑定机制。错误1007/网络/绑定他机/失效/时间/本机License问题分别显示。
+- TerminalActivationGate控制同一进程只能有一个激活请求，旋转、切诊断页和重复点击不重新启动请求；60秒无回调显示持续等待并阻止第二次并发调用，原请求随后成功仍处理一次；旧回调和重复回调不能覆盖新状态。失败可换码重试，授权成功后不提供换码重绑。常规16位序列号输入支持小写、空格和全角短横线规范化，非法格式不调用SDK。
+- 未激活页增加诊断入口，导出激活阶段、指纹取得与否、错误码/明确说明、最近尝试时间及现有设备信息；不导出完整授权码、指纹、License文件或原始SDK返回内容。
+- 相机相关uses-feature改为可选，允许无前摄/无自动对焦机型安装，由实际相机能力检查反馈；不宣称所有USB摄像头都能通过Android Camera API访问。沿用0.7.2旧回调隔离和释放异常容错。
+- P0：原生识别调用完成后再次检查相机暂停/页面代次，忽略已离开页面的结果；后台不展示新现场放行结果、不触发播报；平台静音配置到达时停止正在播放的核验语音。首页统计在同一页面只允许一个在途请求，避免前后台切换重叠刷新，错误仍清空数字为不可用。
+- Build-Demo在开始时撤销旧构建验证标记，只有构建/Lint/测试/签名/最终权限检查全部成功才写入APK SHA256验证记录；Test-Device要求该记录与APK一致才安装，且先读取API等级与ABI，拒绝API<21或非ARMv7/ARM64设备。不自动卸载、不清除数据。Export-Apk继续只导出成功包。
+
+实际验证：
+- 维护Java以实际Android29/百度SDK8.5类路径编译通过。
+- 11组Java主机测试通过：原10组加激活重试边界、并发只启动一次、未校验禁止成功、超时不重入、旧/重复回调、绑定拒绝重试、格式校验与错误文案；加入Test-Client.ps1。
+- TerminalCamera模拟Android回调测试通过；不是现场硬件测试。
+- 平台TestTerminalResultClassificationAndVoice和TestTerminalAccountIntervalBoundaryValidation通过。跨日三种单点模式、双设备单点并发、景区共享统计去重测试因无YKT_TEST_DSN明确SKIP；不能用总命令PASS掩盖跳过。
+- Git diff检查通过。无Windows/PowerShell执行环境，未运行Apply-Demo、最终aapt检查、完整Gradle Lint、签名APK生成与手机安装；不能写“1007已在该机解决”或“P0全部验收完成”。
+
+P0现场验收顺序：
+1. 先在当前1007设备覆盖安装新包，用本机合法授权码激活；若仍1007，从未激活页导出诊断并附型号/Android版本。不要复制已激活设备的私有目录或License。
+2. 激活后核对本地库与平台同步状态，再测试通过、未生效、无匹配、活体失败、有效间隔和单点限制；语音、本机静音/平台静音、蓝牙输出分别确认。
+3. 切后台/锁屏/返回、撤销相机权限、重复进入页面，确认相机可重新开启，后台无播报与延迟放行。
+4. 断网后的记录保持未确认，恢复网络自动补传/确认但不再现场放行或播报通过；强杀重启后继续核对回执。
+5. 两台设备同景区验证共享统计，并保留刷新时间。当前仍是15秒缓存/16秒轮询，不是实时推送。数据库集成和双机实测均须补验收。
+
+Git交付：本轮再次尝试SSH访问GitHub仍因DNS失败，尚未推送。保留本地提交；交付脚本内置仅源码补丁，自动检查0.7.1或0.7.2基线后应用，失败不覆盖；不会下载或替换签名密钥、私有数据库和授权文件。平台代码本轮未修改，无需重复部署。
+
+依据：本地AuthLibrary/CodeDetail.java、BdFaceAuth.java、CodeLicenseDetail.java及AndroidLicenser.ErrorCode枚举；百度官方 https://ai.baidu.com/ai-doc/FACE/Zk37c1nnn 、https://ai.baidu.com/ai-doc/FACE/pk37c1mqu 。

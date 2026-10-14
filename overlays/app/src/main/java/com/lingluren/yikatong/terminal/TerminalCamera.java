@@ -21,10 +21,12 @@ public final class TerminalCamera implements TextureView.SurfaceTextureListener 
         try{
             int count=Camera.getNumberOfCameras(),id=SingleBaseConfig.getBaseConfig().getRBGCameraId();
             if(id<0||id>=count){id=0;for(int i=0;i<count;i++){Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(i,info);if(info.facing==Camera.CameraInfo.CAMERA_FACING_FRONT){id=i;break;}}}
+            if(count==0){stop();error.show("未检测到摄像头，请检查设备硬件或外接摄像头连接");return;}
             Camera.CameraInfo info=new Camera.CameraInfo();Camera.getCameraInfo(id,info);camera=Camera.open(id);
             Camera.Parameters p=camera.getParameters();Camera.Size best=null;long distance=Long.MAX_VALUE;
             for(Camera.Size size:p.getSupportedPreviewSizes()){long d=Math.abs((long)size.width*size.height-640L*480);if(d<distance){distance=d;best=size;}}
             if(best==null)throw new IllegalStateException("摄像头没有可用预览尺寸");
+            if(p.getSupportedPreviewFormats()==null||!p.getSupportedPreviewFormats().contains(android.graphics.ImageFormat.NV21)){stop();error.show("此摄像头不支持NV21图像格式，当前核验引擎无法使用");return;}
             p.setPreviewSize(best.width,best.height);p.setPreviewFormat(android.graphics.ImageFormat.NV21);
             if(p.getSupportedFocusModes()!=null && p.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
             camera.setParameters(p);
@@ -33,9 +35,10 @@ public final class TerminalCamera implements TextureView.SurfaceTextureListener 
             rotation=front?(info.orientation+degrees)%360:(info.orientation-degrees+360)%360;
             camera.setDisplayOrientation(front?(360-rotation)%360:rotation);camera.setPreviewTexture(texture);
             Camera.Size actual=camera.getParameters().getPreviewSize();bufferWidth=actual.width;bufferHeight=actual.height;fitPreview();
-            camera.setErrorCallback((code,c)->{stop();error.show("摄像头异常（"+code+"），请重试");});
-            camera.setPreviewCallback((data,c)->{if(wanted&&!previewOnly)runtime.frame(data,actual.width,actual.height,rotation);});camera.startPreview();
-        }catch(Exception e){stop();error.show("摄像头无法打开，请检查相机权限或关闭其他占用相机的应用");}
+            camera.setErrorCallback((code,c)->{if(c!=camera)return;stop();error.show("摄像头异常（"+code+"），请关闭其他相机应用后重新开始核验");});
+            camera.setPreviewCallback((data,c)->{if(c==camera&&wanted&&!previewOnly)runtime.frame(data,actual.width,actual.height,rotation);});camera.startPreview();
+        }catch(SecurityException e){stop();error.show("相机权限已关闭，请在系统应用权限中开启后重新核验");}
+        catch(Exception e){stop();error.show("摄像头无法打开，请检查相机权限或关闭其他占用相机的应用");}
     }
     private void fitPreview(){
         if(view.getWidth()==0||view.getHeight()==0||bufferWidth==0||bufferHeight==0)return;
@@ -45,7 +48,7 @@ public final class TerminalCamera implements TextureView.SurfaceTextureListener 
         transform.setScale(source>target?source/target:1f,source<target?target/source:1f,view.getWidth()/2f,view.getHeight()/2f);
         view.setTransform(transform);
     }
-    public void stop(){boolean active=wanted||camera!=null;wanted=false;if(active&&!previewOnly)runtime.pauseCamera();if(camera!=null){Camera c=camera;camera=null;try{c.setPreviewCallback(null);c.stopPreview();}catch(RuntimeException ignored){}finally{c.release();}}}
+    public void stop(){boolean active=wanted||camera!=null;wanted=false;if(active&&!previewOnly)runtime.pauseCamera();if(camera!=null){Camera c=camera;camera=null;try{c.setPreviewCallback(null);}catch(RuntimeException ignored){}try{c.setErrorCallback(null);}catch(RuntimeException ignored){}try{c.stopPreview();}catch(RuntimeException ignored){}try{c.release();}catch(RuntimeException ignored){}}}
     @Override public void onSurfaceTextureAvailable(SurfaceTexture surface,int width,int height){open(surface);}
     @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface,int width,int height){fitPreview();}
     @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface){stop();return true;}
