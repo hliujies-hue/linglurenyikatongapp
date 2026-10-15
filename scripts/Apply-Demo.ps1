@@ -108,4 +108,14 @@ foreach($screen in $requiredScreens) {
  $source = Join-Path $work ('settinglibrary\src\main\java\com\example\settinglibrary\' + $screen + '.java')
  if(-not (Test-Path $source)) { throw "Original Demo parameter screen missing: $screen. Restore the complete Demo before building." }
 }
+# Product terminology only. Keep resource identifiers, vendor classes and license checks intact.
+$settingsStrings = Join-Path $work 'settinglibrary\src\main\res\values\strings.xml'
+$stringsXml = New-Object System.Xml.XmlDocument
+$stringsXml.PreserveWhitespace = $true
+$stringsXml.Load($settingsStrings)
+foreach($label in @($stringsXml.resources.SelectNodes('string'))) {
+ if($label.GetAttribute('name') -eq 'footer_baidu_brain_support') { $label.InnerText='河北领路人科技有限公司 提供技术支持' }
+ elseif($label.GetAttribute('name') -eq 'label_sdk_version') { $label.InnerText='算法版本' }
+}
+$stringsXml.Save($settingsStrings)
 Write-Host 'Administrator settings: online password gate, private Demo screens, foreground-only 10 minute session.'

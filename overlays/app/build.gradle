@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 125
-        versionName "0.7.6-camera"
+        versionCode 126
+        versionName "0.7.7-license"
         multiDexEnabled true
 
         ndk {

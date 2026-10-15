@@ -26,13 +26,17 @@ final class TerminalLicenseManager {
     TerminalActivationGate.State state(){return gate.state();}
     boolean fingerprintReady(){return fingerprintReady;}
     long lastAttempt(){return lastAttempt;}
+    String savedCode(){
+        String saved=context.getSharedPreferences("terminal_license",Context.MODE_PRIVATE).getString("successful_code", "");
+        return saved.isEmpty()?PreferencesUtil.getString("activate_online_key", ""):saved;
+    }
     void attach(Listener value){listener=value;publish();}
     void detach(Listener value){if(listener==value)listener=null;}
     private void publish(){main.post(()->{Listener view=listener;if(view!=null)view.changed(gate.state());});}
     boolean start(String raw){
         String code=TerminalActivationGate.normalizeCode(raw);long request=gate.start();if(request==0)return false;
         lastAttempt=System.currentTimeMillis();fingerprintReady=false;
-        TerminalRuntime.get(context).sdkAuthorization("CHECKING",code);publish();
+        TerminalRuntime.get(context).sdkAuthorization("CHECKING",null);publish();
         worker.execute(()->prepare(request,code));return true;
     }
     private void prepare(long request,String code){
@@ -43,7 +47,7 @@ final class TerminalLicenseManager {
             fingerprintReady=device!=null&&!device.trim().isEmpty();
             int action=gate.fingerprint(request,fingerprintReady);publish();
             if(action==TerminalActivationGate.RETRY){worker.schedule(()->prepare(request,code),1,TimeUnit.SECONDS);return;}
-            if(action==TerminalActivationGate.FAILED){TerminalRuntime.get(context).sdkAuthorization("ERROR",code);return;}
+            if(action==TerminalActivationGate.FAILED){TerminalRuntime.get(context).sdkAuthorization("ERROR",null);TerminalRuntime.get(context).activationFailed(TerminalActivationGate.describe(1007));return;}
             if(action!=TerminalActivationGate.READY)return;
             worker.schedule(()->{if(gate.slow(request))publish();},60,TimeUnit.SECONDS);
             auth.initLicenseOnLine(context,code,(error,message)->worker.execute(()->complete(request,code,error)));
@@ -52,11 +56,14 @@ final class TerminalLicenseManager {
     private void complete(long request,String code,int error){
         TerminalActivationGate.State state=gate.state();
         if(state.generation!=request||!state.busy())return;
-        if(error==0){try{PreferencesUtil.putString("activate_online_key",code);}catch(RuntimeException e){error=-2002;}}
+        if(error==0){try{
+            if(!context.getSharedPreferences("terminal_license",Context.MODE_PRIVATE).edit().putString("successful_code",code).commit())error=-2003;
+            if(error==0)PreferencesUtil.putString("activate_online_key",code);
+        }catch(RuntimeException e){error=-2003;}}
         if(!gate.finish(request,error))return;
         TerminalRuntime runtime=TerminalRuntime.get(context);
         if(error==0){runtime.sdkAuthorization("AUTHORIZED",code);runtime.authorize();}
-        else runtime.sdkAuthorization("ERROR",code);
+        else {runtime.sdkAuthorization("ERROR",null);runtime.activationFailed(TerminalActivationGate.describe(error));}
         publish();
     }
 }

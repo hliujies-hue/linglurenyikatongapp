@@ -49,10 +49,18 @@ public final class TerminalRuntime {
     private volatile String lastStatus="正在恢复设备状态";
     private JSONObject session,feedback=new JSONObject();
     private PlatformClient client;
+    // Credentials are kept only for this in-flight login; passwords are never stored.
+    private PendingLogin pendingLogin;
+    private volatile boolean signingIn;
+    private static final class PendingLogin {
+        final PlatformClient client;final JSONObject info;final String origin,fingerprint,username;final Done done;
+        PendingLogin(PlatformClient c,JSONObject i,String o,String f,String u,Done d){client=c;info=i;origin=o;fingerprint=f;username=u;done=d;}
+    }
+    public boolean signingIn(){return signingIn;}
     private TerminalRuntime(Context context){
         this.context=context;store=new TerminalStore(context);
         presence=new TerminalPresence(context,store,text->{Listener view=listener;if(view!=null)view.communication(text);});
-        actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请激活设备后登录景区子账号");}catch(Exception e){failure(e);}});
+        actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请登录景区子账号，已激活设备将自动恢复算法授权");}catch(Exception e){failure(e);}});
         actor.scheduleWithFixedDelay(this::tick,1+jitter.nextInt(5),1,TimeUnit.SECONDS);
     }
     public void attach(Listener value){listener=value;emit(lastStatus);value.communication(presence.status());}
@@ -88,38 +96,68 @@ public final class TerminalRuntime {
     public void beginSettings(Done done){
         settingsOpen=true;ready=false;pauseCamera();
         actor.execute(()->{try{
-            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("百度配置读取失败");
+            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");
             complete(done,null);
         }catch(Exception e){settingsOpen=false;complete(done,safe(e));}});
     }
     public void endSettings(){
         actor.execute(()->{try{
-            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("百度配置读取失败");
+            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");
             if(engine.ready())engine.applySettings();
-            settingsOpen=false;ready=false;nextTick=0;emit("百度设置已读取，正在重新同步平台状态；请手动开始核验");tick();
+            settingsOpen=false;ready=false;nextTick=0;emit("算法设置已读取，正在重新同步平台状态；请手动开始核验");tick();
         }catch(Exception e){ready=false;settingsOpen=false;modelFailed=true;failure(e);}});
     }
-    public void authorize(){authorized=true;actor.execute(()->{nextTick=0;tick();});}
+    public void authorize(){authorized=true;actor.execute(()->{if(pendingLogin!=null)finishLogin(pendingLogin);nextTick=0;tick();});}
+    public void activationFailed(String error){actor.execute(()->{if(pendingLogin!=null)failLogin(pendingLogin,error);});}
     public void pauseCamera(){scanning=false;viewEpoch++;}
     public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
     public void nextAttempt(){actor.execute(()->{gate.reset();lastGuidance=0;showResult(viewEpoch,"已开始新一轮，请正对镜头保持稳定","",false);});}
     private void connect() throws Exception {client=new PlatformClient(session.getString("origin"));client.token(session.optString("accessToken"));}
-    public void login(String origin,String fingerprint,String username,String password,Done done){
-        pauseCamera();actor.execute(()->{try {
-            if(!authorized)throw new IllegalStateException("请先完成设备激活");
+    public synchronized void login(String origin,String fingerprint,String username,String password,Done done){
+        if(signingIn){complete(done,"上一笔登录和授权恢复仍在处理中，请等待当前结果");return;}
+        signingIn=true;
+        pauseCamera();actor.execute(()->{
+          PlatformClient next=null;
+          try {
+            if(TerminalLicenseManager.get(context).state().busy())throw new IllegalStateException("正在校验本机算法授权，请等待校验完成后登录");
             if(session!=null&&(!origin.equals(session.getString("origin"))||!username.equals(session.getString("username"))))throw new IllegalStateException("请先在原账号完成同步退出，再切换账号或平台");
-            PlatformClient next=new PlatformClient(origin);
+            next=new PlatformClient(origin);
             JSONObject info=next.request("/api/terminal/login",new JSONObject().put("username",username).put("password",password));
             next.token(info.getString("accessToken"));
+            PendingLogin job=new PendingLogin(next,info,origin,fingerprint,username,done);
+            if(!authorized){
+                String code=TerminalLicenseManager.get(context).savedCode();
+                if(code.isEmpty()){
+                    emit("账号已验证，正在恢复本机算法授权…");
+                    JSONObject restored;
+                    try{restored=next.request("/api/terminal/license/restore",new JSONObject().put("fingerprint",fingerprint));}
+                    catch(PlatformClient.ApiException e){if(e.status==404)throw new IllegalStateException("平台尚未提供算法授权恢复接口，请管理员先更新平台后重新登录");throw e;}
+                    code=restored.getString("license");
+                }
+                code=TerminalActivationGate.normalizeCode(code);
+                pendingLogin=job;
+                if(!TerminalLicenseManager.get(context).start(code))throw new IllegalStateException("本机算法授权已有校验任务，请等待完成后登录");
+                return;
+            }
+            pendingLogin=job;finishLogin(job);
+          }catch(Exception e){pendingLogin=null;if(next!=null)next.logout();signingIn=false;String error=safe(e);emit(error);complete(done,error);}
+        });
+    }
+    private void failLogin(PendingLogin job,String error){
+        if(pendingLogin!=job)return;pendingLogin=null;job.client.logout();signingIn=false;emit(error);complete(job.done,error);
+    }
+    private void finishLogin(PendingLogin job){
+        if(pendingLogin!=job)return;
+        PlatformClient next=job.client;JSONObject info=job.info;String origin=job.origin,fingerprint=job.fingerprint,username=job.username;
+        try{
+            if(!authorized)throw new IllegalStateException("算法授权尚未通过校验，无法开始核验会话");
             if(!store.libraryBelongsTo(origin)){if(engine.ready())engine.reset(store);engine.invalidateLibrary();store.switchLibrary(origin);}
             String libraryId=store.libraryId(origin);
-            JSONObject binding;
-            try{binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION).put("libraryId",libraryId));}
-            catch(Exception e){next.logout();throw e;}
-            if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){next.logout();throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
+            JSONObject binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION).put("libraryId",libraryId));
+            if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
-            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";emit("账号已登录，正在同步人员与记录");complete(done,null);tick();
-        }catch(Exception e){complete(done,safe(e));}});
+            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";pendingLogin=null;signingIn=false;presence.retry();emit("账号已登录，正在同步人员与记录");complete(job.done,null);tick();
+        }catch(Exception e){failLogin(job,safe(e));}
     }
     private void ensureSharedLibrary() throws Exception {
         if("SHARED".equals(session.optString("libraryMode"))){

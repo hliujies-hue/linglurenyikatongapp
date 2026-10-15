@@ -2,13 +2,15 @@
 
 需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.6.0-result-ui`（112）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+0.7.7 新增[算法授权保存与卸载重装恢复](docs/ALGORITHM-LICENSE-RECOVERY.md)：同签名更新自动校验，误卸载后登录恢复已备份授权码。先更新平台再更新 APP。
+
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.7-license`（126）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 
 本轮实现设备激活后的子账号登录、V2 自动登记、真实 SDK 图片转特征与本地检索、增量增删人脸、活体核验、平台业务判定、SQLite 事件和回执、断网失败补传、同步完成后退出，以及日期筛选的景区共享人数。硬件不固定绑定账号，子账号归属景区主账号，单点规则取子账号快照。
 
-配套平台使用 `hliujies-hue/linglurenyikatong` 的 `codex/terminal-session-v2-20261013` 分支。0.4.0需要配套共享人员库平台更新，具体提交见本轮交付命令及需求台账。先更新平台，再构建和覆盖安装 APP。Git 使用 SSH，不自动运行 GitHub Actions。
+配套平台使用 `hliujies-hue/linglurenyikatong` 的 `main` 分支。0.7.7 的授权自动恢复需要配套平台更新，具体提交见本轮交付命令及需求台账。先更新平台，再构建和覆盖安装 APP。Git 使用 SSH，不自动运行 GitHub Actions。
 
 已完成 Java 编译检查（Android 29 与所提供百度 SDK 的实际类型）、HTTPS 目标校验及连续人脸去重测试。尚未在本执行环境完成完整 Gradle APK 构建、签名校验和真机业务验收；不能把源代码编译检查当成 APK 已安装或已通过验票验收。
 

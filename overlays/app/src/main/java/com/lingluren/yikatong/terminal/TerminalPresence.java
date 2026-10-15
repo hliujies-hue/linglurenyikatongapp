@@ -23,9 +23,10 @@ final class TerminalPresence {
     private volatile long lastAttempt,lastSuccess;
     private volatile int consecutiveFailures;
     private volatile String failureKind="";
+    private volatile String licenseBackup="尚未确认算法授权备份";
     private volatile boolean checking;
     JSONObject diagnostics(){
-        JSONObject out=new JSONObject();try{out.put("checking",checking||retryQueued.get()).put("lastAttempt",lastAttempt).put("lastSuccess",lastSuccess).put("consecutiveFailures",consecutiveFailures).put("failureKind",failureKind);}catch(Exception ignored){}return out;
+        JSONObject out=new JSONObject();try{out.put("checking",checking||retryQueued.get()).put("lastAttempt",lastAttempt).put("lastSuccess",lastSuccess).put("consecutiveFailures",consecutiveFailures).put("failureKind",failureKind).put("licenseBackup",licenseBackup);}catch(Exception ignored){}return out;
     }
     void retry(){if(retryQueued.compareAndSet(false,true))worker.execute(()->{try{tick();}finally{retryQueued.set(false);}});}
     private volatile String status="平台通信：等待配置";
@@ -36,7 +37,7 @@ final class TerminalPresence {
     String status(){return status;}
     void configure(String origin,String fingerprint){
         final String normalized=TerminalEndpointPolicy.normalizeOrigin(origin);
-        worker.execute(()->{if(!this.origin.equals(normalized)){lastAttempt=0;lastSuccess=0;consecutiveFailures=0;failureKind="";}this.origin=normalized;this.fingerprint=fingerprint;tick();});
+        worker.execute(()->{if(!this.origin.equals(normalized)){lastAttempt=0;lastSuccess=0;consecutiveFailures=0;failureKind="";licenseBackup="尚未确认当前平台的算法授权备份";}this.origin=normalized;this.fingerprint=fingerprint;tick();});
     }
     void sdk(String authorization,String sdkStatus,String license){worker.execute(()->{String nextLicense=license==null||license.isEmpty()?this.license:license;if(this.authorization.equals(authorization)&&this.sdkStatus.equals(sdkStatus)&&this.license.equals(nextLicense))return;this.authorization=authorization;this.sdkStatus=sdkStatus;this.license=nextLicense;tick();});}
     private void tick(){
@@ -56,9 +57,11 @@ final class TerminalPresence {
             if(proof!=null)body.put("sessionId",proof.getString("sessionId")).put("sessionToken",proof.getString("sessionToken")).put("generation",proof.getLong("generation"));
             JSONObject result=new PlatformClient(origin).request("/api/terminal/presence",body);
             if(!result.optBoolean("connected"))throw new IllegalStateException("平台尚未确认设备通信");
+            if("AUTHORIZED".equals(authorization)&&!license.isEmpty())licenseBackup=result.optBoolean("licenseBackedUp")?"算法授权码已备份到当前平台":"平台未确认授权备份，请管理员更新平台后重试连接";
             lastSuccess=System.currentTimeMillis();consecutiveFailures=0;failureKind="";
             publish("平台通信：在线 · "+result.optString("deviceName")+("DISABLED".equals(result.optString("deviceStatus"))?"（后台已停用核验）":""));
         }catch(Exception e){consecutiveFailures=Math.min(9999,consecutiveFailures+1);String message=TerminalMessages.friendly(e.getMessage());
+            if("AUTHORIZED".equals(authorization)&&!license.isEmpty())licenseBackup="本机算法授权已保存，平台备份待重试："+message;
             failureKind=message.contains("域名")?"平台域名解析失败":message.contains("超时")?"连接超时":message.contains("证书")?"安全连接校验失败":"平台通信失败";
             publish("平台通信：未连接 · "+message);
         }finally{checking=false;}
