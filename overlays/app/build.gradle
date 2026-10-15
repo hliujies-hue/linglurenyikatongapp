@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 129
-        versionName "0.7.10-config"
+        versionCode 130
+        versionName "0.7.11-ui"
 
         ndk {
             moduleName "facesdk"
