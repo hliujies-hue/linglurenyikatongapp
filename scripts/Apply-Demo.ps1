@@ -119,3 +119,6 @@ foreach($label in @($stringsXml.resources.SelectNodes('string'))) {
 }
 $stringsXml.Save($settingsStrings)
 Write-Host 'Administrator settings: online password gate, private Demo screens, foreground-only 10 minute session.'
+
+# Optional export from the hidden platform APP maintenance page.
+& (Join-Path $PSScriptRoot 'Apply-AppBranding.ps1') -Root $root -Work $work

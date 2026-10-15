@@ -389,3 +389,10 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 未关闭：AUD-01 外部备份/密钥轮换和历史治理、AUD-17 完整依赖/SCA 与可复现打包、AUD-21 旧硬件归档；厂商缓存加密、自动加密备份，以及实际数据库/真机 20 万压测、第三方自动化对接仍需后续工作。
 
 - 最终补充验证：13 组主机 Java 测试均通过；后台 147 项全套测试通过后，新增第 6 项会话延迟响应测试，最终会话/下载 19 项与最后会话 6 项回归均通过；新增 Cookie 路由边界、middleware/security 测试通过。Android 29 官方可选 test runner/base JAR 编译仪器源码通过；未执行 Android 仪器测试。
+
+## REQ-APP-CONFIG-20261015：远程维护入口与设备名称
+
+- 最新规则：隐藏路径 `/aapshezhilingluren`，专用密码校验加平台账号权限；APP内品牌、背景、文字与核验语音，版本检测与最低版本，全局封禁；授权信息显示设备名称。AUD-14/AUD-19仍暂不修改。
+- 实现：`TerminalAppPolicy`、`TerminalRuntime`配置缓存/轮询、`TerminalEntryActivity`品牌/更新/设备名称、`TerminalPresence`名称缓存；`Apply-AppBranding.ps1`在同签名构建中应用桌面品牌。平台实现见配套需求记录及 `APP-CONFIG-0.7.10.md`。
+- 提交依据：本次0.7.10-config变更，基于APP已发布372d94247daf8fcc32d26da26bb49ac7d92dfa6c；配套平台基于9919fc999dcc3aa12d942ee895e7ba00c0f45504，发布保留后续服务器备份提交。
+- 状态：代码实现；已验证：Go全套测试299项通过、357项跳过（含本次MySQL事务用例）；前端152项通过；Vue脚本/模板编译通过；14组Java主机测试通过；假Android相机/授权回归通过；Android生产源码编译通过。尚未部署、未构建本版正式APK、未真机验收。更新为启动/运行期轮询与手动检查，不是静默安装；桌面图标与名称必须重新打包。数据库事务测试需要测试库，不能以跳过代替通过。

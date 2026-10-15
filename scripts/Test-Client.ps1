@@ -30,7 +30,9 @@ try {
  $envelopeTest = Join-Path $root 'tests\java\TerminalStorageEnvelopeTest.java'
  $algorithmQueue = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalAlgorithmQueue.java'
  $algorithmQueueTest = Join-Path $root 'tests\java\TerminalAlgorithmQueueTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest $restore $restoreTest $activation $activationTest $envelope $envelopeTest $algorithmQueue $algorithmQueueTest
+ $appPolicy = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalAppPolicy.java'
+ $appPolicyTest = Join-Path $root 'tests\java\TerminalAppPolicyTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest $restore $restoreTest $activation $activationTest $envelope $envelopeTest $algorithmQueue $algorithmQueueTest $appPolicy $appPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
@@ -58,5 +60,7 @@ try {
  if($LASTEXITCODE -ne 0) { throw '本机加密防篡改测试失败' }
  & java -cp $out com.lingluren.yikatong.terminal.TerminalAlgorithmQueueTest
  if($LASTEXITCODE -ne 0) { throw '算法队列隔离或容量测试失败' }
+ & java -cp $out TerminalAppPolicyTest
+ if($LASTEXITCODE -ne 0) { throw 'APP版本限制测试失败' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

@@ -38,6 +38,37 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private TerminalRuntime runtime;
+    private TextView brandHeading,brandSubtitle,brandSupport,appNotice,deviceNameView;
+    private ImageView brandIcon;
+    private LinearLayout brandBanner;
+    private String displayedIcon="",displayedBackground="";
+    private void applyAppConfig(){
+        JSONObject c=runtime.appConfig();
+        if(brandHeading!=null)brandHeading.setText(c.optString("appName","一卡通核验端"));
+        if(brandSubtitle!=null)brandSubtitle.setText(c.optString("subtitle","景区年卡核验"));
+        if(brandSupport!=null)brandSupport.setText(c.optString("supportText","河北领路人科技有限公司 提供技术支持"));
+        if(deviceNameView!=null)deviceNameView.setText(runtime.deviceName());
+        String notice=runtime.appBlockedReason();String announcement=c.optString("announcement");if(!announcement.isEmpty())notice+=(notice.isEmpty()?"":"\n")+announcement;
+        try{if(!c.optString("latestVersion").isEmpty()&&TerminalAppPolicy.older(TerminalProtocol.VERSION,c.optString("latestVersion")))notice+=(notice.isEmpty()?"":"\n")+"发现新版本 "+c.optString("latestVersion")+"，点击查看更新";}catch(Exception ignored){}
+        if(appNotice!=null){appNotice.setText(notice);appNotice.setVisibility(notice.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);}
+        String icon=c.optString("iconUrl"),bg=c.optString("backgroundUrl");
+        if(brandIcon!=null&&!icon.equals(displayedIcon)){displayedIcon=icon;brandIcon.setImageDrawable(null);brandIcon.setVisibility(icon.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);if(!icon.isEmpty())loadBrandImage(icon,true);}
+        if(brandBanner!=null&&!bg.equals(displayedBackground)){displayedBackground=bg;brandBanner.setBackground(artwork());if(!bg.isEmpty())loadBrandImage(bg,false);}
+    }
+    private void loadBrandImage(String url,boolean icon){final int generation=pageVersion;
+        adminWorker.execute(()->{try{byte[] bytes=PlatformClient.brandingImage(url);android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
+            if(options.outWidth<=0||options.outHeight<=0||(long)options.outWidth*options.outHeight>32000000L)throw new IllegalArgumentException("图片尺寸超限，最多3200万像素");
+            options.inJustDecodeBounds=false;options.inSampleSize=1;while(options.outWidth/options.inSampleSize>(icon?256:1280)||options.outHeight/options.inSampleSize>(icon?256:1280))options.inSampleSize*=2;
+            android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);if(bitmap==null)throw new IllegalArgumentException("图片不是可解码的PNG或JPEG");
+            main.post(()->{if(destroyed||generation!=pageVersion||!url.equals(icon?displayedIcon:displayedBackground))return;if(icon&&brandIcon!=null)brandIcon.setImageBitmap(bitmap);else if(brandBanner!=null)brandBanner.setBackground(new android.graphics.drawable.BitmapDrawable(getResources(),bitmap));});
+        }catch(Exception e){main.post(()->{if(!destroyed&&generation==pageVersion)Toast.makeText(this,"品牌"+(icon?"图标":"背景")+"加载失败："+TerminalMessages.friendly(e.getMessage()),Toast.LENGTH_LONG).show();});}});
+    }
+    private void showAppUpdate(){JSONObject c=runtime.appConfig();String latest=c.optString("latestVersion"),url=c.optString("updateUrl");
+        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(this).setTitle("APP版本与更新").setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n最低允许版本："+c.optString("minimumVersion","不限制")+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n安装包SHA256："+c.optString("updateSha256")+"\n下载后由系统确认安装，请保留本机数据并使用覆盖安装。").setNegativeButton("关闭",null);
+        if(url.startsWith("https://"))dialog.setPositiveButton("浏览器下载APK",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"未找到浏览器，请由管理员下载安装包",Toast.LENGTH_LONG).show();}});dialog.show();
+    }
+    private void checkAppUpdate(){runtime.checkAppConfig(error->{if(destroyed)return;if(error!=null){new android.app.AlertDialog.Builder(this).setTitle("检查更新失败").setMessage(error).setPositiveButton("知道了",null).show();return;}applyAppConfig();showAppUpdate();});}
+
     private TerminalCamera camera;
     private TextToSpeech speech;
     private boolean speechReady, accountPage, scanPage, resultPage;
@@ -183,27 +214,30 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
         if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics=null;}
         if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics=null;}
-        voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
+        brandHeading=null;brandSubtitle=null;brandSupport=null;appNotice=null;deviceNameView=null;brandIcon=null;brandBanner=null;displayedIcon="";displayedBackground="";voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);getWindow().setStatusBarColor(0xff2f8fff);getWindow().setNavigationBarColor(Color.WHITE);
         boolean login="景区工作人员登录".equals(title),home="一卡通核验端".equals(title);
         LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff0f7ff);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);scroll.addView(outer);
         LinearLayout banner=new LinearLayout(this);banner.setOrientation(LinearLayout.VERTICAL);banner.setGravity(login?android.view.Gravity.CENTER:android.view.Gravity.CENTER_VERTICAL);banner.setPadding(dp(18),dp(12),dp(18),dp(16));banner.setBackground(artwork());banner.setMinimumHeight(dp(login?200:home?78:72));outer.addView(banner,new LinearLayout.LayoutParams(-1,-2));
+        if(home||login)brandBanner=banner;
         LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);
         if(!home&&!login){TerminalIconView back=new TerminalIconView(this,"back",Color.WHITE);top.addView(back,new LinearLayout.LayoutParams(dp(30),dp(36)));back.setOnClickListener(v->{if(runtime.hasSession())showAccount();else showLogin();});}
-        TextView heading=text(login?"一卡通核验端":title,login?28:home?23:21,Color.WHITE);heading.setTypeface(null,android.graphics.Typeface.BOLD);if(!home)heading.setGravity(android.view.Gravity.CENTER);top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        if(home||login){brandIcon=new ImageView(this);brandIcon.setContentDescription("APP图标");brandIcon.setVisibility(android.view.View.GONE);top.addView(brandIcon,new LinearLayout.LayoutParams(dp(42),dp(42)));}
+        TextView heading=text(login?"一卡通核验端":title,login?28:home?23:21,Color.WHITE);if(home||login)brandHeading=heading;heading.setTypeface(null,android.graphics.Typeface.BOLD);if(!home)heading.setGravity(android.view.Gravity.CENTER);top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
         if(!home&&!login){top.addView(new android.view.View(this),new LinearLayout.LayoutParams(dp(30),1));}banner.addView(top,new LinearLayout.LayoutParams(-1,-2));
-        if(home||login){TextView subtitle=text(login?"景区工作人员登录":"景区年卡核验",15,Color.WHITE);subtitle.setGravity(login?android.view.Gravity.CENTER:android.view.Gravity.LEFT);subtitle.setPadding(0,dp(8),0,0);banner.addView(subtitle);}
+        if(home||login){TextView subtitle=text(login?"景区工作人员登录":"景区年卡核验",15,Color.WHITE);if(home)brandSubtitle=subtitle;subtitle.setGravity(login?android.view.Gravity.CENTER:android.view.Gravity.LEFT);subtitle.setPadding(0,dp(8),0,0);banner.addView(subtitle);}
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(12),dp(8),dp(12),dp(8));root.setBackground(background(home?Color.WHITE:0xfff0f7ff,0));LinearLayout.LayoutParams content=new LinearLayout.LayoutParams(-1,-2);content.topMargin=-dp(8);outer.addView(root,content);
         communication=text(runtime.communicationStatus(),12,MUTED);communication.setPadding(dp(4),0,0,dp(6));root.addView(communication);communication.setVisibility(android.view.View.GONE);
+        appNotice=text("",14,0xffa33500);appNotice.setPadding(dp(8),dp(8),dp(8),dp(8));appNotice.setOnClickListener(v->showAppUpdate());root.addView(appNotice);
         status=text("",13,MUTED);status.setPadding(dp(4),0,dp(4),dp(8));root.addView(status);
         if(runtime.hasSession()&&navigation){LinearLayout nav=new LinearLayout(this);nav.setBackgroundColor(Color.WHITE);String[] names={"核验","记录","维护"},icons={"home","record","settings"};int selected=home?0:title.contains("记录")?1:2;for(int i=0;i<3;i++){final int index=i;LinearLayout tab=new LinearLayout(this);tab.setOrientation(LinearLayout.VERTICAL);tab.setGravity(android.view.Gravity.CENTER);int tint=i==selected?BLUE:MUTED;tab.addView(new TerminalIconView(this,icons[i],tint),new LinearLayout.LayoutParams(dp(23),dp(23)));TextView caption=text(names[i],11,tint);caption.setPadding(0,dp(5),0,0);caption.setGravity(android.view.Gravity.CENTER);tab.addView(caption,new LinearLayout.LayoutParams(-1,-2));tab.setMinimumHeight(dp(59));tab.setPadding(0,dp(8),0,dp(8));tab.setContentDescription(names[i]);nav.addView(tab,new LinearLayout.LayoutParams(0,-2,1));tab.setOnClickListener(v->{if(index==0)showAccount();else if(index==1)showLocalRecords();else showMaintenance();});}shell.addView(nav,new LinearLayout.LayoutParams(-1,-2));}
         addSupport(shell);
-        setContentView(shell);return root;
+        setContentView(shell);applyAppConfig();return root;
     }
     private void addSupport(LinearLayout shell){
-        TextView support=text("河北领路人科技有限公司 提供技术支持",11,MUTED);support.setGravity(android.view.Gravity.CENTER);support.setPadding(dp(8),dp(9),dp(8),dp(9));support.setMinHeight(dp(40));support.setBackgroundColor(Color.WHITE);support.setContentDescription("河北领路人科技有限公司 提供技术支持，打开官方网站");support.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://linglu.ren")));}catch(android.content.ActivityNotFoundException e){Toast.makeText(this,"请在浏览器访问 linglu.ren",Toast.LENGTH_LONG).show();}});shell.addView(support,new LinearLayout.LayoutParams(-1,-2));
+        TextView support=text(runtime.appConfig().optString("supportText","河北领路人科技有限公司 提供技术支持"),11,MUTED);brandSupport=support;support.setGravity(android.view.Gravity.CENTER);support.setPadding(dp(8),dp(9),dp(8),dp(9));support.setMinHeight(dp(40));support.setBackgroundColor(Color.WHITE);support.setContentDescription("河北领路人科技有限公司 提供技术支持，打开官方网站");support.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://linglu.ren")));}catch(android.content.ActivityNotFoundException e){Toast.makeText(this,"请在浏览器访问 linglu.ren",Toast.LENGTH_LONG).show();}});shell.addView(support,new LinearLayout.LayoutParams(-1,-2));
     }
     private boolean cameraAllowed(){return Build.VERSION.SDK_INT<23||checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}
     private void explainPermissions(){
@@ -271,7 +305,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void showActivation() {
         if(runtime.signingIn()){Toast.makeText(this,"正在恢复算法授权并登录，请等待当前结果",Toast.LENGTH_LONG).show();return;}
-        LinearLayout root=page("设备激活");activationPage=true;
+        LinearLayout root=page("设备激活");activationPage=true;deviceNameView=row(root,"设备名称",runtime.deviceName());
         action(root,"已激活设备：登录恢复授权",this::showLogin,false);
         EditText code=new EditText(this);styleInput(code,"首次使用请输入本机算法授权码");
         code.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);code.setText(activationInput);root.addView(code);
@@ -312,7 +346,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(authorized&&activationPage&&foreground){if(runtime.hasSession())showAccount();else showLogin();}
     }
     private void showLogin(){
-        LinearLayout root=page("景区工作人员登录");loginPage=true;int version=pageVersion;
+        LinearLayout root=page("景区工作人员登录");loginPage=true;deviceNameView=row(root,"设备名称",runtime.deviceName());int version=pageVersion;
         status.setText(runtime.signingIn()?"正在恢复算法授权并登录，请稍候":authorized?"本机算法授权已就绪 · "+connectionLabel():"已激活的设备可登录恢复算法授权，无需重复输入授权码");status.setGravity(android.view.Gravity.CENTER);LinearLayout form=card(root);label(form,"账号登录");
         form.addView(text("子账号",15,INK));EditText user=new EditText(this);styleInput(user,"请输入工作人员账号");form.addView(user);
         form.addView(text("密码",15,INK));EditText password=new EditText(this);styleInput(password,"请输入密码");password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);password.setPadding(dp(14),dp(12),dp(56),dp(12));FrameLayout passwordBox=new FrameLayout(this);LinearLayout.LayoutParams passwordLp=new LinearLayout.LayoutParams(-1,-2);passwordBox.setMinimumHeight(dp(52));passwordLp.bottomMargin=dp(14);form.addView(passwordBox,passwordLp);passwordBox.addView(password,new FrameLayout.LayoutParams(-1,-2));TextView visible=text("显示",12,MUTED);visible.setGravity(android.view.Gravity.CENTER);visible.setContentDescription("显示或隐藏密码");passwordBox.addView(visible,new FrameLayout.LayoutParams(dp(52),-1,android.view.Gravity.RIGHT));visible.setOnClickListener(v->{boolean hidden=password.getTransformationMethod()!=null;password.setTransformationMethod(hidden?null:PasswordTransformationMethod.getInstance());visible.setText(hidden?"隐藏":"显示");password.setSelection(password.length());});
@@ -416,7 +450,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
                 JSONObject q=data.optJSONObject("sync");long age=data.optLong("heartbeatAgeSeconds",-1);
                 String info="APP："+data.optString("appVersion")+"\nAndroid："+Build.VERSION.RELEASE+"\n平台："+savedOrigin()
                     +"\n算法设备指纹："+(license.fingerprintReady()?"已取得（不导出指纹值）":"未取得")+"\n激活阶段："+TerminalActivationGate.phaseText(license.state().phase)+"\n最近激活尝试："+deviceTime(license.lastAttempt())+"\n激活错误："+(license.state().error==0?"无":TerminalActivationGate.describe(license.state().error))
-                    +"\n设备授权："+(data.optBoolean("authorized")?"已完成":"未完成")+"\n账号会话："+(data.optBoolean("hasSession")?"已登录":"未登录")
+                    +"\n设备名称："+data.optString("deviceName")+"\nAPP配置版本："+data.optLong("appConfigRevision")+"\nAPP限制原因："+data.optString("appBlockedReason","无")+"\n设备授权："+(data.optBoolean("authorized")?"已完成":"未完成")+"\n账号会话："+(data.optBoolean("hasSession")?"已登录":"未登录")
                     +"\n领路人脸算法："+(data.optBoolean("modelFailed")?"加载失败":data.optBoolean("sdkReady")?"就绪":data.optBoolean("loading")?"加载中":"等待初始化")
                     +"\n当前可核验："+(data.optBoolean("ready")?"是":"否")+"\n相机权限："+(cameraAllowed()?"已开启":"未开启")
                     +"\n算法授权备份："+data.optString("licenseBackup","尚未确认")
@@ -435,7 +469,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         });}};if(foreground)refreshDiagnostics.run();
     }
     private void showMaintenance(){
-        LinearLayout root=page("设备维护");maintenancePage=true;status.setText(TerminalMessages.friendly(lastState));JSONObject p=runtime.uiProfile();LinearLayout device=card(root);LinearLayout licensed=iconLabel("check",authorized?"设备已授权":"设备未授权",0xff00b779,32);licensed.setPadding(0,dp(8),0,dp(8));licensed.setBackground(artwork("terminal-result-mint.png"));round(licensed,8);device.addView(licensed);maintenanceConnection=row(device,"平台通信",TerminalMessages.friendly(runtime.communicationStatus()).replace("平台通信：",""));row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
+        LinearLayout root=page("设备维护");maintenancePage=true;status.setText(TerminalMessages.friendly(lastState));JSONObject p=runtime.uiProfile();LinearLayout device=card(root);LinearLayout licensed=iconLabel("check",authorized?"设备已授权":"设备未授权",0xff00b779,32);licensed.setPadding(0,dp(8),0,dp(8));licensed.setBackground(artwork("terminal-result-mint.png"));round(licensed,8);device.addView(licensed);deviceNameView=row(device,"设备名称",runtime.deviceName());action(root,"检查APP版本与更新",this::checkAppUpdate,false);maintenanceConnection=row(device,"平台通信",TerminalMessages.friendly(runtime.communicationStatus()).replace("平台通信：",""));row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
         LinearLayout sync=card(root);label(sync,"数据与同步");TextView faceCount=row(sync,"本地特征","读取中…");TextView pendingCount=row(sync,"待确认记录","读取中…");final int maintenanceVersion=pageVersion;runtime.localRecords((data,error)->{if(destroyed||pageVersion!=maintenanceVersion)return;faceCount.setText(error==null?String.valueOf(data.optLong("localFaces")):"暂不可用");pendingCount.setText(error==null?String.valueOf(data.optLong("pending")):"暂不可用");});row(sync,"同步状态",runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);
         LinearLayout audioBox=card(root);label(audioBox,"语音播报");addVoiceToggle(audioBox);voiceStatusView=text("",13,MUTED);voiceStatusView.setPadding(0,dp(8),0,dp(8));audioBox.addView(voiceStatusView);updateVoiceStatus();action(audioBox,"语音设置与试听",this::showVoiceSettings,false);
         LinearLayout menus=card(root);menu(menus,"设备诊断与连接检查",this::showDiagnostics);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"景区入园统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);menu(menus,"卸载或清除数据前检查",this::showUninstallCheck);
@@ -526,7 +560,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         });query.performClick();
     }
     @Override public void status(String value,boolean ready,boolean hasSession){
-        if(destroyed)return;if(!runtime.voiceAllowed()&&!speechUtterance.isEmpty())stopSpeech();updateVoiceStatus();lastState=value;if(maintenancePage)status.setText(TerminalMessages.friendly(value));if(syncPage){status.setText(TerminalMessages.friendly(value));updateSync();}
+        if(destroyed)return;applyAppConfig();if(!runtime.voiceAllowed()&&!speechUtterance.isEmpty())stopSpeech();updateVoiceStatus();lastState=value;if(maintenancePage)status.setText(TerminalMessages.friendly(value));if(syncPage){status.setText(TerminalMessages.friendly(value));updateSync();}
         if(loginPage){if(loginButton!=null)loginButton.setEnabled(!runtime.signingIn()&&!license.state().busy());status.setText(TerminalMessages.friendly(value));if(hasSession&&value.startsWith("账号已登录")){loginCompleted=true;if(authorized&&!runtime.signingIn()&&foreground){showSyncPage();return;}}}
         if(!hasSession&&authorized&&!baiduSettingsOpen&&(accountPage||scanPage||resultPage||syncPage||maintenancePage)){showLogin();return;}
         if(accountPage){homeStatus(value);JSONObject p=runtime.uiProfile();if(homeChips!=null){homeChips[1].setText(connectionLabel());homeChips[2].setText(p.optBoolean("sdkReady")?"领路人脸算法就绪":"领路人脸算法准备中");}if(homeAccount!=null)homeAccount.setText(p.optString("scenicName","等待景区同步")+" · "+p.optString("accountName","等待账号同步"));if(startButton!=null){startButton.setText(ready?"开始核验":"查看同步进度");startButton.setEnabled(true);}}
@@ -534,7 +568,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(scanPage){status.setText(value);if(!ready){if(diagnosticView!=null)diagnosticView.setText(value);if(camera!=null)camera.stop();startButton.setText("开始核验");}startButton.setEnabled(ready);}
     }
     @Override public void diagnostics(String value){if(!destroyed&&scanPage&&diagnosticView!=null)diagnosticView.setText(value);}
-    @Override public void communication(String value){if(!destroyed&&communication!=null){communication.setText(TerminalMessages.friendly(value));if(maintenanceConnection!=null)maintenanceConnection.setText(TerminalMessages.friendly(value).replace("平台通信：",""));if(accountPage&&homeChips!=null)homeChips[1].setText(connectionLabel());}}
+    @Override public void communication(String value){if(!destroyed&&communication!=null){if(deviceNameView!=null)deviceNameView.setText(runtime.deviceName());communication.setText(TerminalMessages.friendly(value));if(maintenanceConnection!=null)maintenanceConnection.setText(TerminalMessages.friendly(value).replace("平台通信：",""));if(accountPage&&homeChips!=null)homeChips[1].setText(connectionLabel());}}
     private android.media.AudioManager audioManager(){return (android.media.AudioManager)getSystemService(AUDIO_SERVICE);}
     private void stopSpeech(){if(speech!=null)speech.stop();speechUtterance="";android.media.AudioManager audio=audioManager();if(audio!=null)audio.abandonAudioFocus(speechFocus);}
     private void initSpeech(){

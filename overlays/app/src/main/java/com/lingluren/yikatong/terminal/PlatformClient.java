@@ -53,6 +53,11 @@ public final class PlatformClient {
         try {if(connection.getResponseCode()!=200)throw new IOException("人员照片读取失败，请重试同步");return read(connection.getInputStream(),2*1024*1024);}
         finally{connection.disconnect();}
     }
+    public static byte[] brandingImage(String value) throws Exception {
+        URI uri=new URI(value);if(!"https".equals(uri.getScheme())||uri.getHost()==null||uri.getRawUserInfo()!=null||uri.getRawFragment()!=null)throw new IOException("品牌图片必须使用HTTPS地址");
+        HttpsURLConnection c=(HttpsURLConnection)uri.toURL().openConnection();configure(c);
+        try{if(c.getResponseCode()!=200)throw new IOException("品牌图片HTTP状态："+c.getResponseCode());return read(c.getInputStream(),8*1024*1024);}finally{c.disconnect();}
+    }
     private static int port(URI u){return u.getPort()==-1?443:u.getPort();}
     private static void configure(HttpsURLConnection c){c.setInstanceFollowRedirects(false);c.setConnectTimeout(5000);c.setReadTimeout(10000);c.setRequestProperty("User-Agent","YikatongTerminal/"+TerminalProtocol.VERSION);c.setRequestProperty("Accept","application/json");c.setUseCaches(false);}
     private static byte[] read(InputStream stream,int limit) throws IOException {try(InputStream in=stream;ByteArrayOutputStream out=new ByteArrayOutputStream()){

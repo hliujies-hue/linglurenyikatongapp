@@ -10,3 +10,6 @@ signing.properties
 *.aar
 *.apk
 *.log
+
+
+/app-branding.json

@@ -29,6 +29,21 @@ public final class TerminalRuntime {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean frameQueued=new AtomicBoolean(),retryQueued=new AtomicBoolean();
     private volatile Listener listener;
+    private final ScheduledExecutorService configWorker=Executors.newSingleThreadScheduledExecutor();
+    private volatile String configOrigin="";
+    private volatile JSONObject appConfig=new JSONObject();
+    public JSONObject appConfig(){try{return new JSONObject(appConfig.toString());}catch(Exception e){return new JSONObject();}}
+    public String appBlockedReason(){JSONObject c=appConfig;return TerminalAppPolicy.block(c.optBoolean("disabled"),c.optString("disabledReason"),c.optString("minimumVersion"),TerminalProtocol.VERSION);}
+    public String deviceName(){String name=uiProfile.optString("deviceName");if(name.isEmpty())name=presence.deviceName();return name.isEmpty()?"尚未取得平台设备名称，请登录恢复设备授权后重试连接":name;}
+    public void checkAppConfig(Done done){configWorker.execute(()->fetchAppConfig(done));}
+    private void fetchAppConfig(Done done){
+        String origin=configOrigin;if(origin.isEmpty()){if(done!=null)complete(done,"尚未设置平台地址");return;}
+        try{JSONObject next=new PlatformClient(origin).request("/api/terminal/app-config",null);
+            if(!origin.equals(configOrigin))return;
+            context.getSharedPreferences("terminal_app_config",Context.MODE_PRIVATE).edit().putString(origin,next.toString()).apply();appConfig=next;
+            emit(lastStatus);if(done!=null)complete(done,null);
+        }catch(Exception e){if(done!=null)complete(done,e instanceof PlatformClient.ApiException&&((PlatformClient.ApiException)e).status==404?"当前平台尚未部署APP配置接口，请管理员先更新平台":"APP配置检查失败："+safe(e));}
+    }
     private volatile boolean ready,hasSession,scanning,authorized;
     private volatile long viewEpoch;
     private boolean modelFailed,restoreContinuationQueued;
@@ -65,16 +80,19 @@ public final class TerminalRuntime {
         presence=new TerminalPresence(context,store,text->{Listener view=listener;if(view!=null)view.communication(text);});
         actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请登录景区子账号，已激活设备将自动恢复算法授权");}catch(Exception e){failure(e);}});
         actor.scheduleWithFixedDelay(this::tick,1+jitter.nextInt(5),1,TimeUnit.SECONDS);
+        configWorker.scheduleWithFixedDelay(()->fetchAppConfig(null),5,30,TimeUnit.SECONDS);
     }
     public void attach(Listener value){listener=value;emit(lastStatus);value.communication(presence.status());}
     public void detach(Listener value){if(listener==value)listener=null;pauseCamera();}
-    public void configureConnection(String origin,String fingerprint){presence.configure(origin,fingerprint);}
+    public void configureConnection(String origin,String fingerprint){presence.configure(origin,fingerprint);
+        String normalized=TerminalEndpointPolicy.normalizeOrigin(origin);if(!normalized.equals(configOrigin)){configOrigin=normalized;try{appConfig=new JSONObject(context.getSharedPreferences("terminal_app_config",Context.MODE_PRIVATE).getString(normalized,"{}"));}catch(Exception ignored){appConfig=new JSONObject();}checkAppConfig(null);}
+    }
     public void sdkAuthorization(String state,String code){presence.sdk(state,"AUTHORIZED".equals(state)?"AUTHORIZED":"UNAUTHORIZED",code);}
     public String communicationStatus(){return presence.status();}
     public void retryConnection(){presence.retry();if(hasSession)retry();}
     public void diagnostics(Stats done){actor.execute(()->{try{
         JSONObject out=presence.diagnostics();
-        out.put("appVersion",TerminalProtocol.VERSION).put("authorized",authorized).put("hasSession",hasSession)
+        out.put("deviceName",deviceName()).put("appConfigRevision",appConfig.optLong("revision")).put("appBlockedReason",appBlockedReason()).put("appVersion",TerminalProtocol.VERSION).put("authorized",authorized).put("hasSession",hasSession)
             .put("sdkReady",engine.ready()).put("modelFailed",modelFailed).put("loading",engine.loading())
             .put("rosterReady",rosterReady).put("ready",ready()).put("settingsOpen",settingsOpen).put("platformSynced",platformSynced)
             .put("localFaces",store.faces()).put("loadedFaces",loadedFaces).put("loadTotal",loadTotal).put("loadElapsed",loadElapsed)
@@ -88,7 +106,7 @@ public final class TerminalRuntime {
         out.put("sync",counts);main.post(()->done.done(out,null));
     }catch(Exception e){main.post(()->done.done(null,"设备诊断暂不可用，请重试"));}});}
     public boolean hasSession(){return hasSession;}
-    public boolean ready(){return TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
+    public boolean ready(){return appBlockedReason().isEmpty()&&TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
     public String overview(){return overview;}
     private volatile JSONObject uiProfile=new JSONObject();
     private volatile long loadedFaces,loadTotal,loadElapsed;
@@ -135,7 +153,8 @@ public final class TerminalRuntime {
                     JSONObject restored;
                     try{restored=next.request("/api/terminal/license/restore",new JSONObject().put("fingerprint",fingerprint));}
                     catch(PlatformClient.ApiException e){if(e.status==404)throw new IllegalStateException("平台尚未提供算法授权恢复接口，请管理员先更新平台后重新登录");throw e;}
-                    code=restored.getString("license");
+                    code=restored.getString("license");presence.rememberName(origin,restored.optString("deviceName"));
+                    emit("已找到设备「"+restored.optString("deviceName")+"」的算法授权，正在校验本机授权");
                 }
                 code=TerminalActivationGate.normalizeCode(code);
                 pendingLogin=job;
@@ -296,7 +315,9 @@ public final class TerminalRuntime {
             +"\n平台状态更新时间："+result.optString("serverTime")
             +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
         String stage=TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents);
-        if(!rosterReady&&result.optJSONObject("roster")!=null)stage=result.getJSONObject("roster").optString("message",stage);
+        if(!appBlockedReason().isEmpty())stage=appBlockedReason();
+        else if(!result.optString("appBlockedReason").isEmpty())stage=result.optString("appBlockedReason");
+        else if(!rosterReady&&result.optJSONObject("roster")!=null)stage=result.getJSONObject("roster").optString("message",stage);
         syncStep(ready()?"同步完成":!rosterReady?"等待平台生成人员清单":!engine.ready()?"加载本地特征":pendingPeople?"同步人员及回执":pendingEvents>0?"确认入园记录":"等待平台核验条件确认");
         if(result.optLong("photoRejected")>0)stage+="\n另有"+result.optLong("photoRejected")+"项照片处理失败，对应人员暂不能刷脸；请管理员查看照片失败原因并更换照片";
         emit(stage);
@@ -448,5 +469,5 @@ public final class TerminalRuntime {
     private void failure(Throwable e){emit(safe(e));}
     private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":TerminalMessages.friendly(m);}
     private void complete(Done done,String error){main.post(()->done.done(error));}
-    private void emit(String text){lastStatus=text;boolean active=hasSession,can=ready();main.post(()->{Listener l=listener;if(l!=null)l.status(text,can,active);});}
+    private void emit(String text){lastStatus=text;final String message=appBlockedReason().isEmpty()?text:appBlockedReason();boolean active=hasSession,can=ready();main.post(()->{Listener l=listener;if(l!=null)l.status(message,can,active);});}
 }
