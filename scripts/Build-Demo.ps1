@@ -1,7 +1,8 @@
-param([switch]$DeferTests)
+param([switch]$DeferTests,[string]$QueueJob = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $root 'demo-work'
+if($QueueJob -and -not (Test-Path -LiteralPath (Join-Path $root 'signing.properties') -PathType Leaf)) { throw 'Queued builds require ORIGINAL signing.properties; key generation is forbidden' }
 $verified = Join-Path $work 'app\build\outputs\apk\release\app-release.verified.json'
 if(Test-Path -LiteralPath $verified) { Remove-Item -LiteralPath $verified -Force }
 if(-not (Test-Path (Join-Path $work 'gradlew.bat'))) { throw 'Demo working copy missing' }
@@ -21,8 +22,10 @@ $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 if(-not (Test-Path (Join-Path $env:ANDROID_HOME 'platforms\android-29\android.jar'))) { throw 'Android platform 29 missing' }
 [IO.File]::WriteAllText((Join-Path $work 'local.properties'),'sdk.dir='+$env:ANDROID_HOME.Replace('\','/')+"`n",(New-Object Text.UTF8Encoding($false)))
 & (Join-Path $PSScriptRoot 'Apply-Demo.ps1')
+if($QueueJob) { & (Join-Path $PSScriptRoot 'Apply-QueuedBuild.ps1') -JobFile $QueueJob }
 $signing = Join-Path $root 'signing.properties'
 if(-not (Test-Path -LiteralPath $signing)) {
+ if($QueueJob) { throw 'Original signing disappeared; queued build cannot generate a key' }
  $dir = Join-Path $env:USERPROFILE '.yikatong-signing'
  New-Item -ItemType Directory -Force -Path $dir | Out-Null
  $key = Join-Path $dir 'terminal-release.jks'
@@ -85,4 +88,3 @@ try {
  if($DeferTests) { Write-Warning 'TESTS_DEFERRED：APK 已构建；未执行自动化、业务、性能或真机验收。' }
  Write-Host 'Session V2 APK built. Deploy matching platform first; complete real-phone activation, sync, admission, restart, offline retry and account-switch checks.'
 } finally { Pop-Location }
-

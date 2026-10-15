@@ -431,3 +431,12 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 提交依据：本节与修复脚本同提交，基于上述APP提交；APP版本仍为0.7.12-repair/131，本次仅修正构建生成脚本。平台无需为此修复重复更新。
 - 验证：仅静态检查两条保存路径和命名空间/标记处理；按用户此前要求未运行测试、自动化、PowerShell脚本、Gradle编译或真机安装。需用户执行固定提交构建命令后确认；不得将此前220个任务日志当作构建成功。
 - 保留原签名、包名、授权、未确认记录及第三方库清单；不删除Gradle缓存、不卸载、不安装旧APK。
+
+## REQ-APP-BUILD-WORKER-20261015：专用构建执行器
+
+- 新增scripts/build-worker.py、worker-job-guard.py、Build-Queued.ps1、Apply-QueuedBuild.ps1及任务计划安装入口、禁用状态示例配置。
+- 可信源码固定提交、原签名禁止自动重建、图标本地字节快照、versionCode/versionName和心跳版本同步；实际APK身份/证书/权限/摘要核对，上传后公开下载复核，租约状态查询和本地持久化回报。
+- Windows执行器单任务、文件锁与Job Object约束；构建90分钟超时，构建机磁盘/历史目录容量门槛。配置与日志留在受保护构建机，平台只收固定阶段失败码。
+- 修改Build-Demo与Apply-AppBranding仅为可选队列模式；手工构建仍沿用原版本和正式签名。无需为本批执行器代码重新安装手机APP。
+- 提交依据：本节与执行器同提交，基于024b03cdc58eb865ae8d76042c75bfb8c9aae765，配套平台需新增worker/status和落盘摘要校验。完整提交见交付记录。
+- 验证：仅源码审阅与Python语法静态解析；未运行测试、编译、自动化、APK构建、签名校验或真机检查。尚未接入真实专用机器/密钥/上传凭据，默认不运行，不能宣称生产自动发布已上线。详细接入与剩余项见docs/BUILD-WORKER.md。

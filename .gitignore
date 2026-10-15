@@ -13,3 +13,8 @@ signing.properties
 
 
 /app-branding.json
+__pycache__/
+*.pyc
+/worker-config.json
+/worker-state/
+

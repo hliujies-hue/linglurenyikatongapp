@@ -1,11 +1,12 @@
 param([Parameter(Mandatory=$true)][string]$Root,[Parameter(Mandatory=$true)][string]$Work)
 $ErrorActionPreference='Stop'
 $configPath=Join-Path $Root 'app-branding.json'
+if($env:YKT_BUILD_BRANDING) { $configPath=$env:YKT_BUILD_BRANDING }
 # Missing/empty configuration means restore defaults, including a previously
 # generated icon. Never retain a prior release's branding in incremental builds.
 $config = $null
 if(Test-Path -LiteralPath $configPath) {
- $raw = Get-Content -LiteralPath $configPath -Raw
+ $raw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
  if(-not [string]::IsNullOrWhiteSpace($raw)) {
   $config = $raw | ConvertFrom-Json
   if($null -ne $config -and $config -isnot [PSCustomObject]) { throw 'app-branding.json 必须为 JSON 对象。' }
@@ -92,9 +93,17 @@ if($icon){
  $client=[Net.Http.HttpClient]::new($handler);$client.Timeout=[TimeSpan]::FromSeconds(30)
  $response=$null;$stream=$null;$memory=[IO.MemoryStream]::new();$source=$null;$bitmap=$null;$graphics=$null;$temporaryIcon=$null
  try {
+  if($env:YKT_BUILD_BRANDING) {
+   if(-not $env:YKT_BUILD_ICON_PATH -or $env:YKT_BUILD_ICON_SHA256 -notmatch '^[a-f0-9]{64}$') { throw 'Queued icon snapshot missing' }
+   if((Get-FileHash -LiteralPath $env:YKT_BUILD_ICON_PATH -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:YKT_BUILD_ICON_SHA256) { throw 'Queued icon snapshot hash mismatch' }
+   if((Get-Item -LiteralPath $env:YKT_BUILD_ICON_PATH).Length -gt 8MB) { throw 'Queued icon snapshot exceeds 8MB' }
+   $stream=[IO.File]::OpenRead($env:YKT_BUILD_ICON_PATH)
+  } else {
   $response=$client.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
   if([int]$response.StatusCode -ne 200){throw "图标下载失败，HTTP $([int]$response.StatusCode)"}
-  $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();$buffer=New-Object byte[] 8192
+  $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+  }
+  $buffer=New-Object byte[] 8192
   while(($count=$stream.Read($buffer,0,$buffer.Length)) -gt 0){if($memory.Length+$count -gt 8MB){throw '图标超过8MB'};$memory.Write($buffer,0,$count)}
   $memory.Position=0;$source=[Drawing.Image]::FromStream($memory)
   if([long]$source.Width*$source.Height -gt 32000000){throw '图标超过3200万像素，请压缩后上传'}

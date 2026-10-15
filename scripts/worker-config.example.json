@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "checkout": "C:\\YikatongBuild\\app",
+  "stateDirectory": "C:\\ProgramData\\YikatongBuild\\state",
+  "apiBase": "https://ykt.qiliai.com/api",
+  "uploadBase": "https://ykt.qiliai.com/app-artifact-upload",
+  "publicBase": "https://ykt.qiliai.com/app-artifacts",
+  "sourceCommit": "REPLACE_WITH_APPROVED_APP_COMMIT_40_HEX",
+  "certificateSHA256": "REPLACE_WITH_ORIGINAL_SIGNING_CERTIFICATE_64_HEX",
+  "workerTokenFile": "C:\\ProgramData\\YikatongBuild\\worker.token",
+  "uploadTokenFile": "C:\\ProgramData\\YikatongBuild\\upload.token",
+  "iconHosts": ["ykt.qiliai.com", "yktadmin.qiliai.com"],
+  "powershell": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  "minimumFreeBytes": 10737418240,
+  "maximumStateBytes": 21474836480
+}
