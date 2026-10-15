@@ -2,9 +2,11 @@
 
 需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
 
+0.7.8 新增批量人员回执、限流等待、一次性维护码及实际生效设置说明。先更新配套平台；审计仍有未完成项，详见平台`docs/testing/AUDIT-REMEDIATION-2026-10-15.md`。
+
 0.7.7 新增[算法授权保存与卸载重装恢复](docs/ALGORITHM-LICENSE-RECOVERY.md)：同签名更新自动校验，误卸载后登录恢复已备份授权码。先更新平台再更新 APP。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.7-license`（126）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.8-audit`（127）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 

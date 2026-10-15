@@ -14,9 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 126
-        versionName "0.7.7-license"
-        multiDexEnabled true
+        versionCode 127
+        versionName "0.7.8-audit"
 
         ndk {
             moduleName "facesdk"
@@ -72,7 +71,6 @@ dependencies {
     implementation 'com.android.support:appcompat-v7:28.0.0'
     //noinspection GradleCompatible
     implementation 'com.android.support:recyclerview-v7:28.0.0'
-    implementation 'com.google.code.gson:gson:2.6.2'
     implementation 'androidx.recyclerview:recyclerview:1.1.0'
 //    implementation files('libs/picozensesdk-release.aar')
 //    implementation files('libs/SocketClient.jar')

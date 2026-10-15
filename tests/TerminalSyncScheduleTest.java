@@ -4,7 +4,7 @@ public final class TerminalSyncScheduleTest {
  public static void main(String[] args){
   for(int j=0;j<5000;j+=113){
    long idle=TerminalSyncSchedule.delay(false,0,j),busy=TerminalSyncSchedule.delay(true,0,j);
-   check(idle>=15000&&idle<20000);check(busy>=3000&&busy<4000);
+   check(idle>=15000&&idle<20000);check(busy>=250&&busy<500);
    check(idle<30000); // readiness lease remains renewable while idle
    long previous=0;
    for(int failure=1;failure<=50;failure++){
@@ -23,6 +23,10 @@ public final class TerminalSyncScheduleTest {
   check(TerminalSyncSchedule.uninstallNotice(0,true).contains("账号尚未退出"));
   check(TerminalSyncSchedule.uninstallNotice(0,false).contains("当前未登录"));
   check(TerminalSyncSchedule.uninstallNotice(3,true).contains("不能保证卸载后恢复"));
+  check(!TerminalSyncSchedule.heartbeatDue(1000,1250,true,true,false));
+  check(!TerminalSyncSchedule.heartbeatDue(1000,1250,false,false,false));
+  check(TerminalSyncSchedule.heartbeatDue(1000,6000,true,true,false));
+  check(TerminalSyncSchedule.heartbeatDue(1000,1250,false,true,false));
   System.out.println("PASS: idle cadence, backlog cadence, exponential backoff, cap and jitter");
  }
 }

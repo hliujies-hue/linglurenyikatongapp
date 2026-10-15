@@ -11,6 +11,8 @@ import javax.net.ssl.HttpsURLConnection;
 public final class PlatformClient {
     private final String origin;
     private String token="";
+    private volatile long retryUntil;
+    public long retryDelayMillis(){return Math.max(0,(retryUntil-System.nanoTime())/1000000L);}
     public static final class ApiException extends TerminalDrainCoordinator.ResponseException {
         ApiException(int status,String message){super(status,message);}
     }
@@ -25,6 +27,7 @@ public final class PlatformClient {
         return json("/api/terminal/statistics?startDate="+from+"&endDate="+to,null);
     }
     private JSONObject json(String path,JSONObject body) throws Exception {
+        long wait=retryDelayMillis();if(wait>0)throw new ApiException(429,"平台限流保护中，请等待"+((wait+999)/1000)+"秒后重试；本机记录保留");
         HttpsURLConnection connection=(HttpsURLConnection)new URL(origin+path).openConnection();configure(connection);
         if(!token.isEmpty()&&!path.startsWith("/api/terminal/recovery/"))connection.setRequestProperty("Authorization","Bearer "+token);
         try {
@@ -32,7 +35,9 @@ public final class PlatformClient {
                 byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);connection.setFixedLengthStreamingMode(bytes.length);
                 try(OutputStream out=connection.getOutputStream()){out.write(bytes);}
             }
-            int http=connection.getResponseCode();InputStream stream=http>=400?connection.getErrorStream():connection.getInputStream();
+            int http=connection.getResponseCode();
+            if(http==429){long seconds=60;try{seconds=Long.parseLong(connection.getHeaderField("Retry-After"));}catch(Exception ignored){}seconds=Math.max(1,Math.min(3600,seconds));retryUntil=System.nanoTime()+seconds*1000000000L;throw new ApiException(429,"平台请求达到限流额度，等待"+seconds+"秒后自动重试；本机记录保留");}
+            InputStream stream=http>=400?connection.getErrorStream():connection.getInputStream();
             if(stream==null)throw new ApiException(http,"平台连接异常（"+http+"）");
             JSONObject reply;
             try { reply=new JSONObject(new String(read(stream,1024*1024),StandardCharsets.UTF_8)); }

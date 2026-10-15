@@ -196,20 +196,16 @@ public final class TerminalRuntime {
         }
         return true;
     }
-    private JSONObject syncAck(JSONObject ack) throws Exception {
-        long started=SystemClock.elapsedRealtime();
-        try{return client.request("/api/terminal/recovery/sync/ack",ack);}
-        finally{lastPersonnelAckMs=SystemClock.elapsedRealtime()-started;}
-    }
     private void syncPeople() throws Exception {
         long started=SystemClock.elapsedRealtime();
         try{syncPeopleBatch();}finally{lastPersonnelBatchMs=SystemClock.elapsedRealtime()-started;}
     }
     private void syncPeopleBatch() throws Exception {
-        JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session)).getJSONArray("items");
-        if(tasks.length()>0)ready=false;
+        JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session).put("pageSize",16)).getJSONArray("items");
+        if(tasks.length()>0)ready=false;else pendingPeople=false;
         long batchStarted=SystemClock.elapsedRealtime();
-        for(int i=0;i<tasks.length()&&i<4;i++){
+        JSONArray receipts=new JSONArray();Exception failure=null;
+        for(int i=0;i<tasks.length()&&i<16;i++){
             if(i>0&&SystemClock.elapsedRealtime()-batchStarted>1500)break;
             emit("正在同步人员，本批第"+(i+1)+"项；本地已保存特征："+store.faces());
             JSONObject task=tasks.getJSONObject(i),ack=TerminalProtocol.ref(session);
@@ -230,13 +226,23 @@ public final class TerminalRuntime {
                 String person=task.optString("personName","待核对人员");
                 lastPhotoIssue=person+"："+safe(e);
                 ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
-                JSONObject rejected=syncAck(ack);
-                if(!rejected.optBoolean("acknowledged")||!rejected.optBoolean("photoRejected"))throw new IllegalStateException("照片失败回执未确认，请先更新配套平台");
+                receipts.put(ack);
                 emit("照片待处理："+lastPhotoIssue+"\n该人员不能刷脸，继续同步其他人员；后台更换照片后重试");
                 continue;
-            }catch(Exception e){ack.put("applied",false).put("error",safe(e));syncAck(ack);throw e;}
-            if(!syncAck(ack).optBoolean("acknowledged"))throw new IllegalStateException("人员任务回执尚未确认");
+            }catch(Exception e){ack.put("applied",false).put("error",safe(e));receipts.put(ack);failure=e;break;}
+            receipts.put(ack);
         }
+        if(receipts.length()>0){
+            long ackStarted=SystemClock.elapsedRealtime();
+            try{
+                JSONArray results=client.request("/api/terminal/recovery/sync/ack-batch",TerminalProtocol.ref(session).put("items",receipts)).getJSONArray("items");
+                if(results.length()!=receipts.length())throw new IllegalStateException("平台批量回执数量不一致，保留本地特征并重试");
+                for(int i=0;i<results.length();i++)if(results.getJSONObject(i).optLong("taskId")!=receipts.getJSONObject(i).getLong("taskId")||!results.getJSONObject(i).optBoolean("acknowledged")){
+                    if(failure==null)throw new IllegalStateException("人员任务回执尚未确认，将自动重试");
+                }
+            }finally{lastPersonnelAckMs=SystemClock.elapsedRealtime()-ackStarted;}
+        }
+        if(failure!=null)throw failure;
     }
     private void acknowledge(JSONObject e,JSONObject response) throws Exception {
         JSONObject ack=TerminalProtocol.ref(e).put("eventId",e.getString("eventId")).put("sequence",e.getLong("sequence")).put("receipt",response.getString("receipt"));
@@ -307,15 +313,15 @@ public final class TerminalRuntime {
             if("PAUSING".equals(session.getString("state")))drain();
             if(pendingPeople){syncStep("下载人员并确认回执");syncPeople();}
             if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
-            syncStep("获取平台核验条件");heartbeat(true);
+            syncStep("获取平台核验条件");if(TerminalSyncSchedule.heartbeatDue(lastHeartbeat,SystemClock.elapsedRealtime(),pendingPeople,rosterReady,ready))heartbeat(true);
             store.cleanup(System.currentTimeMillis());
         }catch(Exception|LinkageError e){failed=true;ready=false;emit("未完成步骤："+syncStep+"\n原因："+safe(e)+"\n本机记录保留，自动重试；重试倒计时见设备诊断，暂不可通行");}
         finally{
             syncFailures=failed?Math.min(8,syncFailures+1):0;
             boolean work=session!=null&&(!rosterReady||pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);
             boolean loading=session!=null&&engine.loading()&&!modelFailed&&!failed;
-            nextTick=SystemClock.elapsedRealtime()+(loading?25:TerminalSyncSchedule.delay(work,syncFailures,jitter.nextInt(5000)));
-            if(loading&&!restoreContinuationQueued){restoreContinuationQueued=true;actor.schedule(()->{restoreContinuationQueued=false;tick();},25,TimeUnit.MILLISECONDS);}
+            nextTick=SystemClock.elapsedRealtime()+Math.max(client==null?0:client.retryDelayMillis(),loading?25:TerminalSyncSchedule.delay(work,syncFailures,jitter.nextInt(5000)));
+            if((loading||(work&&!failed))&&!restoreContinuationQueued){restoreContinuationQueued=true;actor.schedule(()->{restoreContinuationQueued=false;tick();},Math.max(1,nextTick-SystemClock.elapsedRealtime()),TimeUnit.MILLISECONDS);}
         }
     }
     public void retry(){if(retryQueued.compareAndSet(false,true)){emit("正在检查平台变更与待确认记录；本地人员库保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}

@@ -4,7 +4,10 @@ public final class TerminalSyncSchedule {
     public static long delay(boolean work,int failures,int jitter){
         long spread=Math.max(0,Math.min(4999,jitter));
         if(failures>0)return Math.min(60000L,5000L*(1L<<Math.min(4,failures-1)))+spread;
-        return work?3000L+spread/5:15000L+spread;
+        return work?250L+spread/20:15000L+spread;
+    }
+    public static boolean heartbeatDue(long previous,long now,boolean people,boolean roster,boolean ready){
+        return previous<=0||now-previous>=5000||(roster&&!people&&!ready);
     }
     public static String stage(boolean ready,boolean roster,boolean engine,long people,long receipts,long events){
         if(ready)return "信息与人员同步已完成，可以开始核验";

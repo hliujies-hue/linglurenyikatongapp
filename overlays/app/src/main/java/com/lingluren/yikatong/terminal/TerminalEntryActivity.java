@@ -73,14 +73,15 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private void openBaiduSettings(){
         if(baiduSettingsOpen||busy.get()){Toast.makeText(this,"正在处理，请稍候",Toast.LENGTH_SHORT).show();return;}
         if(camera!=null)camera.stop();runtime.pauseCamera();
-        final EditText password=new EditText(this);password.setSingleLine();password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);password.setHint("请输入管理员设置密码");
+        final EditText password=new EditText(this);password.setSingleLine();password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);password.setHint("请输入32位一次性维护码");
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(24),dp(12),dp(24),0);box.addView(password);
-        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this).setTitle("管理员设置").setMessage("由后台独立配置密码，验证后进入算法参数设置。需要联网，每次进入重新验证。").setView(box).setPositiveButton("验证并进入",null).setNegativeButton("取消",null).create();
+        android.widget.CheckBox globalPassword=new android.widget.CheckBox(this);globalPassword.setText("使用全平台维护密码（可重复使用）");box.addView(globalPassword);globalPassword.setOnCheckedChangeListener((button,checked)->{password.setText("");password.setHint(checked?"请输入全平台维护密码":"请输入32位一次性维护码");});
+        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this).setTitle("管理员设置").setMessage("后台设备列表可签发本机一次性维护码，10分钟内有效；每次进入都需联网验证。全平台维护密码保留兼容入口。").setView(box).setPositiveButton("验证并进入",null).setNegativeButton("取消",null).create();
         dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{
-            final String secret=password.getText().toString();if(secret.isEmpty()){password.setError("请输入密码");return;}
+            final boolean useGlobal=globalPassword.isChecked();final String secret=password.getText().toString();if(secret.isEmpty()){password.setError(useGlobal?"请输入全平台维护密码":"请输入本机一次性维护码");return;}
             dialog.getButton(-1).setEnabled(false);dialog.getButton(-1).setText("正在验证…");
             adminWorker.execute(()->{String error=null;try{
-                JSONObject reply=new PlatformClient(savedOrigin()).request("/api/terminal/admin-settings/unlock",new JSONObject().put("password",secret));
+                JSONObject reply=new PlatformClient(savedOrigin()).request("/api/terminal/admin-settings/unlock",new JSONObject().put(useGlobal?"password":"code",secret).put("fingerprint",fingerprint()));
                 if(!reply.optBoolean("verified"))throw new IllegalStateException("管理员设置验证未通过");
             }catch(Exception e){error=e.getMessage()==null?"管理员设置验证失败":e.getMessage();}
             final String problem=error;main.post(()->{if(destroyed||!dialog.isShowing())return;if(!foreground){dialog.dismiss();return;}dialog.getButton(-1).setEnabled(true);dialog.getButton(-1).setText("验证并进入");password.setText("");if(problem!=null){password.setError(problem);return;}dialog.dismiss();enterBaiduSettings();});
