@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 131
-        versionName "0.7.12-repair"
+        versionCode 132
+        versionName "0.7.13-upload"
 
         ndk {
             moduleName "facesdk"
@@ -91,4 +91,3 @@ gradle.taskGraph.whenReady { graph ->
   throw new GradleException('Release signing.properties missing; do not use Demo sample signing.')
  }
 }
-

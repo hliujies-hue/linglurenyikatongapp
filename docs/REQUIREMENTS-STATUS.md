@@ -440,3 +440,10 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 修改Build-Demo与Apply-AppBranding仅为可选队列模式；手工构建仍沿用原版本和正式签名。无需为本批执行器代码重新安装手机APP。
 - 提交依据：本节与执行器同提交，基于024b03cdc58eb865ae8d76042c75bfb8c9aae765，配套平台需新增worker/status和落盘摘要校验。完整提交见交付记录。
 - 验证：仅源码审阅与Python语法静态解析；未运行测试、编译、自动化、APK构建、签名校验或真机检查。尚未接入真实专用机器/密钥/上传凭据，默认不运行，不能宣称生产自动发布已上线。详细接入与剩余项见docs/BUILD-WORKER.md。
+
+## REQ-APP-LOCAL-UPLOAD-20261015：配套手工上传版本
+
+- 配合平台新增本地APK上传发布入口，将默认版本同步为0.7.13-upload/132：overlays/app/build.gradle及TerminalProtocol.VERSION。保持原包名、原正式签名、SDK授权和本地记录。
+- 基于484a36c5d88328e81a67801c6197970597d00504，本节与代码同提交。使用scripts/Export-Apk.ps1 -DeferTests在已有完整环境构建，成功后选择demo-work/app/build/outputs/apk/release/app-release.apk上传；不要上传旧包或把Git拉取成功当作打包成功。
+- 若现场或在线任务已占用132，须提高两处版本后重新构建，不能回退平台计数器。平台上传不会改写包内品牌。
+- 仅源码检查；按用户安排未运行测试、Gradle打包、真实验签或真机安装，尚无已生成的新APK。平台部署和服务器校验工具/原证书配置是后台上传启用的前提；APP内下载校验和系统安装闭环继续后续。
