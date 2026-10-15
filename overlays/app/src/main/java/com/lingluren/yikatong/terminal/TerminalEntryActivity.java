@@ -41,7 +41,17 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private TextView brandHeading,brandSubtitle,brandSupport,appNotice,deviceNameView;
     private ImageView brandIcon;
     private LinearLayout brandBanner;
-    private String displayedIcon="",displayedBackground="";
+    private TerminalBrandImages brandImages;
+    private static final class BrandSlot {
+        final boolean icon;
+        String requested="",displayed="";
+        int attempts,request;
+        boolean loading;
+        java.util.concurrent.Future<?> pending;
+        Runnable retry;
+        BrandSlot(boolean icon){this.icon=icon;}
+    }
+    private final BrandSlot iconSlot=new BrandSlot(true),backgroundSlot=new BrandSlot(false);
     private void applyAppConfig(){
         JSONObject c=runtime.appConfig();
         if(brandHeading!=null)brandHeading.setText(c.optString("appName","一卡通核验端"));
@@ -51,20 +61,71 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         String notice=runtime.appBlockedReason();String announcement=c.optString("announcement");if(!announcement.isEmpty())notice+=(notice.isEmpty()?"":"\n")+announcement;
         try{if(!c.optString("latestVersion").isEmpty()&&TerminalAppPolicy.older(TerminalProtocol.VERSION,c.optString("latestVersion")))notice+=(notice.isEmpty()?"":"\n")+"发现新版本 "+c.optString("latestVersion")+"，点击查看更新";}catch(Exception ignored){}
         if(appNotice!=null){appNotice.setText(notice);appNotice.setVisibility(notice.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);}
-        String icon=c.optString("iconUrl"),bg=c.optString("backgroundUrl");
-        if(brandIcon!=null&&!icon.equals(displayedIcon)){displayedIcon=icon;brandIcon.setImageDrawable(null);brandIcon.setVisibility(icon.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);if(!icon.isEmpty())loadBrandImage(icon,true);}
-        if(brandBanner!=null&&!bg.equals(displayedBackground)){displayedBackground=bg;brandBanner.setBackground(artwork());if(!bg.isEmpty())loadBrandImage(bg,false);}
+        if(brandIcon!=null)requestBrandImage(iconSlot,c.optString("iconUrl"));
+        if(brandBanner!=null)requestBrandImage(backgroundSlot,c.optString("backgroundUrl"));
     }
-    private void loadBrandImage(String url,boolean icon){final int generation=pageVersion;
-        adminWorker.execute(()->{try{byte[] bytes=PlatformClient.brandingImage(url);android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
-            if(options.outWidth<=0||options.outHeight<=0||(long)options.outWidth*options.outHeight>32000000L)throw new IllegalArgumentException("图片尺寸超限，最多3200万像素");
-            options.inJustDecodeBounds=false;options.inSampleSize=1;while(options.outWidth/options.inSampleSize>(icon?256:1280)||options.outHeight/options.inSampleSize>(icon?256:1280))options.inSampleSize*=2;
-            android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);if(bitmap==null)throw new IllegalArgumentException("图片不是可解码的PNG或JPEG");
-            main.post(()->{if(destroyed||generation!=pageVersion||!url.equals(icon?displayedIcon:displayedBackground))return;if(icon&&brandIcon!=null)brandIcon.setImageBitmap(bitmap);else if(brandBanner!=null)brandBanner.setBackground(new android.graphics.drawable.BitmapDrawable(getResources(),bitmap));});
-        }catch(Exception e){main.post(()->{if(!destroyed&&generation==pageVersion)Toast.makeText(this,"品牌"+(icon?"图标":"背景")+"加载失败："+TerminalMessages.friendly(e.getMessage()),Toast.LENGTH_LONG).show();});}});
+    private void cancelBrandImage(BrandSlot slot){
+        slot.request++;
+        if(slot.pending!=null){slot.pending.cancel(true);slot.pending=null;}
+        if(slot.retry!=null){main.removeCallbacks(slot.retry);slot.retry=null;}
+        slot.loading=false;
+    }
+    private void resetBrandImages(){
+        for(BrandSlot slot:new BrandSlot[]{iconSlot,backgroundSlot}){cancelBrandImage(slot);slot.requested="";slot.displayed="";slot.attempts=0;}
+        if(brandImages!=null)brandImages.cancelQueued();
+    }
+    private void retryBrandImages(){
+        for(BrandSlot slot:new BrandSlot[]{iconSlot,backgroundSlot}){
+            if(slot.loading||slot.requested.isEmpty()||slot.requested.equals(slot.displayed))continue;
+            cancelBrandImage(slot);slot.attempts=0;loadBrandImage(slot);
+        }
+    }
+    private void requestBrandImage(BrandSlot slot,String url){
+        if(!url.equals(slot.requested)){
+            cancelBrandImage(slot);slot.requested=url;slot.attempts=0;
+            // Keep the previously displayed valid image until the replacement is decoded.
+            if(url.isEmpty()){
+                slot.displayed="";
+                if(slot.icon&&brandIcon!=null){brandIcon.setImageDrawable(null);brandIcon.setVisibility(android.view.View.GONE);}
+                else if(brandBanner!=null)brandBanner.setBackground(artwork());
+                return;
+            }
+        }
+        if(!url.isEmpty()&&!url.equals(slot.displayed)&&!slot.loading&&slot.retry==null&&slot.attempts<4)loadBrandImage(slot);
+    }
+    private void applyBrandImage(BrandSlot slot,android.graphics.Bitmap bitmap){
+        slot.displayed=slot.requested;slot.attempts=0;
+        if(slot.icon&&brandIcon!=null){brandIcon.setImageBitmap(bitmap);brandIcon.setVisibility(android.view.View.VISIBLE);}
+        else if(brandBanner!=null)brandBanner.setBackground(new android.graphics.drawable.BitmapDrawable(getResources(),bitmap));
+    }
+    private void loadBrandImage(BrandSlot slot){
+        if(destroyed||brandImages==null||slot.requested.isEmpty())return;
+        android.graphics.Bitmap cached=brandImages.cached(slot.requested,slot.icon);
+        if(cached!=null){applyBrandImage(slot,cached);return;}
+        final int generation=pageVersion,request=++slot.request;final String url=slot.requested;
+        slot.loading=true;slot.attempts++;
+        try{
+            slot.pending=brandImages.load(url,slot.icon,(bitmap,error)->main.post(()->{
+                if(destroyed||generation!=pageVersion||request!=slot.request||!url.equals(slot.requested))return;
+                slot.loading=false;slot.pending=null;
+                if(error==null){applyBrandImage(slot,bitmap);return;}
+                brandImageFailed(slot,error);
+            }));
+        }catch(java.util.concurrent.RejectedExecutionException error){slot.loading=false;brandImageFailed(slot,error);}
+    }
+    private void brandImageFailed(BrandSlot slot,Exception error){
+        String detail=error instanceof java.util.concurrent.RejectedExecutionException?"图片队列正在释放上个页面的请求":TerminalMessages.friendly(error.getMessage());
+        if(detail==null||detail.isEmpty())detail="未收到可用图片，请检查网络和后台图片地址";
+        if(slot.attempts<4){
+            long delay=slot.attempts==1?5000:slot.attempts==2?15000:45000;
+            final int generation=pageVersion,request=slot.request;
+            slot.retry=()->{slot.retry=null;if(!destroyed&&generation==pageVersion&&request==slot.request)loadBrandImage(slot);};
+            main.postDelayed(slot.retry,delay);
+            if(slot.attempts==1)Toast.makeText(this,"品牌"+(slot.icon?"图标":"背景")+"未更新："+detail+"。保留原显示，5秒后重试。",Toast.LENGTH_LONG).show();
+        }else Toast.makeText(this,"品牌"+(slot.icon?"图标":"背景")+"连续4次加载失败："+detail+"。网络恢复后点击顶部品牌区域重试。",Toast.LENGTH_LONG).show();
     }
     private void showAppUpdate(){JSONObject c=runtime.appConfig();String latest=c.optString("latestVersion"),url=c.optString("updateUrl");
-        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(this).setTitle("APP版本与更新").setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n最低允许版本："+c.optString("minimumVersion","不限制")+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n安装包SHA256："+c.optString("updateSha256")+"\n下载后由系统确认安装，请保留本机数据并使用覆盖安装。").setNegativeButton("关闭",null);
+        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(this).setTitle("APP版本与更新").setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n最低允许版本："+c.optString("minimumVersion","不限制")+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n安装包SHA256："+c.optString("updateSha256")+"\n下载由浏览器完成，本页未自动校验下载文件。请由管理员核对发布摘要后覆盖安装，保留本机数据。").setNegativeButton("关闭",null);
         if(url.startsWith("https://"))dialog.setPositiveButton("浏览器下载APK",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"未找到浏览器，请由管理员下载安装包",Toast.LENGTH_LONG).show();}});dialog.show();
     }
     private void checkAppUpdate(){runtime.checkAppConfig(error->{if(destroyed)return;if(error!=null){new android.app.AlertDialog.Builder(this).setTitle("检查更新失败").setMessage(error).setPositiveButton("知道了",null).show();return;}applyAppConfig();showAppUpdate();});}
@@ -89,6 +150,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private TerminalProgressView loadRing;
     private boolean startAfterPermission;
     private Button startButton;
+    private enum ScanState { PAUSED, STARTING, RUNNING, UNAVAILABLE, ERROR }
+    private ScanState scanState=ScanState.PAUSED;
+    private Runnable scanStartupTimeout;
     private TextView resultView,diagnosticView;
     private TextureView cameraPreview;
     private int pageVersion;
@@ -130,9 +194,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             if(error!=null){baiduSettingsOpen=false;status.setText(error);new android.app.AlertDialog.Builder(this).setTitle("管理员设置未打开").setMessage(error).setPositiveButton("知道了",null).show();return;}
             try{
                 TerminalApplication.unlock();
-                Toast.makeText(this,"原生参数设置：当前业务使用RGB活体，红外/深度需专用硬件与接入；返回后手动开始核验",Toast.LENGTH_LONG).show();
+                Toast.makeText(this,"算法参数只影响本机，保存并返回后手动开始核验",Toast.LENGTH_LONG).show();
                 startActivityForResult(new Intent().setClassName(this,"com.example.settinglibrary.SettingActivity"),201);
-            }catch(RuntimeException e){TerminalApplication.lock();baiduSettingsOpen=false;runtime.endSettings();status.setText("算法设置无法打开，请检查完整Demo安装包");}
+            }catch(RuntimeException e){TerminalApplication.lock();baiduSettingsOpen=false;runtime.endSettings();status.setText("算法设置无法打开：当前安装包缺少设置页面，请联系管理员覆盖安装完整版本");}
         });
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
@@ -164,6 +228,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        brandImages=new TerminalBrandImages(getApplicationContext());
         runtime=TerminalRuntime.get(this);runtime.attach(this);
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);initSpeech();
         PreferencesUtil.initPrefs(getApplicationContext());
@@ -214,14 +279,15 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(camera!=null){camera.stop();camera=null;}else if(runtime!=null)runtime.pauseCamera();
         if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics=null;}
         if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics=null;}
-        brandHeading=null;brandSubtitle=null;brandSupport=null;appNotice=null;deviceNameView=null;brandIcon=null;brandBanner=null;displayedIcon="";displayedBackground="";voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
+        resetBrandImages();if(scanStartupTimeout!=null){main.removeCallbacks(scanStartupTimeout);scanStartupTimeout=null;}scanState=ScanState.PAUSED;startButton=null;
+        brandHeading=null;brandSubtitle=null;brandSupport=null;appNotice=null;deviceNameView=null;brandIcon=null;brandBanner=null;voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);getWindow().setStatusBarColor(0xff2f8fff);getWindow().setNavigationBarColor(Color.WHITE);
         boolean login="景区工作人员登录".equals(title),home="一卡通核验端".equals(title);
         LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff5f6f8);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);scroll.addView(outer);
         LinearLayout banner=new LinearLayout(this);banner.setOrientation(LinearLayout.VERTICAL);banner.setGravity(login?android.view.Gravity.CENTER:android.view.Gravity.CENTER_VERTICAL);banner.setPadding(dp(20),dp(24),dp(20),dp(24));banner.setBackground(artwork());banner.setMinimumHeight(dp(login?164:home?112:88));outer.addView(banner,new LinearLayout.LayoutParams(-1,-2));
-        if(home||login)brandBanner=banner;
+        if(home||login){brandBanner=banner;banner.setOnClickListener(v->retryBrandImages());banner.setContentDescription("APP品牌区域，图片未加载时点击重试");}
         LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);
         if(!home&&!login){TerminalIconView back=new TerminalIconView(this,"back",Color.WHITE);top.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));back.setOnClickListener(v->{if(runtime.hasSession())showAccount();else showLogin();});}
         if(home||login){brandIcon=new ImageView(this);brandIcon.setContentDescription("APP图标");brandIcon.setVisibility(android.view.View.GONE);top.addView(brandIcon,new LinearLayout.LayoutParams(dp(42),dp(42)));}
@@ -386,16 +452,65 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         }};if(foreground)refreshHomeStatistics.run();
         LinearLayout summary=card(root);label(summary,"本机最近核验");runtime.localRecords((data,error)->{if(destroyed||pageVersion!=version)return;if(error!=null){summary.addView(text(error,13,MUTED));return;}JSONArray rows=data.optJSONArray("items");if(rows==null||rows.length()==0)summary.addView(text("本机当前会话暂无记录",13,MUTED));else for(int i=0;i<Math.min(3,rows.length());i++){JSONObject r=rows.optJSONObject(i);if(r==null)continue;LinearLayout line=new LinearLayout(this);line.setGravity(android.view.Gravity.CENTER_VERTICAL);boolean pass=r.optBoolean("pass");line.addView(new TerminalIconView(this,pass?"check":"alert",pass?0xff00bd79:0xffff6b43),new LinearLayout.LayoutParams(dp(18),dp(18)));TextView time=text(r.optString("time"),12,MUTED);time.setPadding(dp(10),0,dp(6),0);line.addView(time,new LinearLayout.LayoutParams(0,-2,1));time.setGravity(android.view.Gravity.CENTER_VERTICAL);TextView outcome=text(r.optString("title",r.optString("text")),12,pass?0xff00ac6d:0xffd56640);outcome.setGravity(android.view.Gravity.END);line.addView(outcome,new LinearLayout.LayoutParams(0,-2,1));line.setPadding(0,dp(8),0,dp(8));summary.addView(line,new LinearLayout.LayoutParams(-1,-2));}TextView more=text("本机记录 · 查看全部  ›",12,BLUE);more.setPadding(0,dp(8),0,0);summary.addView(more);more.setOnClickListener(v->showLocalRecords());});
     }
+    private void setScanState(ScanState state){
+        if(scanStartupTimeout!=null){main.removeCallbacks(scanStartupTimeout);scanStartupTimeout=null;}
+        scanState=state;
+        if(!scanPage||startButton==null)return;
+        startButton.setText(state==ScanState.RUNNING?"暂停核验":state==ScanState.STARTING?"正在启动相机…":"开始核验");
+        startButton.setEnabled(state!=ScanState.STARTING&&runtime.ready());
+    }
     private void showScan(){
-        if(!runtime.ready()){showSyncPage();return;}page("人脸核验",false);scanPage=true;
-        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff5f6f8);shell.setPadding(dp(16),0,dp(16),0);LinearLayout heading=new LinearLayout(this);heading.setGravity(android.view.Gravity.CENTER_VERTICAL);heading.setPadding(dp(12),dp(8),dp(12),dp(8));heading.setBackground(artwork());TerminalIconView back=new TerminalIconView(this,"back",Color.WHITE);heading.addView(back,new LinearLayout.LayoutParams(dp(32),dp(40)));back.setOnClickListener(v->showAccount());LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);titles.setGravity(android.view.Gravity.CENTER);TextView title=text("人脸核验",22,Color.WHITE);title.setTypeface(null,android.graphics.Typeface.BOLD);titles.addView(title);titles.addView(text(runtime.uiProfile().optString("scenicName"),13,Color.WHITE));heading.addView(titles,new LinearLayout.LayoutParams(0,-2,1));TextView mute=text(voiceLabel(),12,Color.WHITE);heading.addView(mute,new LinearLayout.LayoutParams(dp(56),dp(40)));mute.setGravity(android.view.Gravity.CENTER);mute.setOnClickListener(v->{boolean enabled=!localVoice();getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",enabled).apply();if(!enabled)stopSpeech();mute.setText(voiceLabel());});shell.addView(heading);
-        FrameLayout frame=new FrameLayout(this);frame.setBackgroundColor(0xff24384b);round(frame,16);shell.addView(frame,new LinearLayout.LayoutParams(-1,0,1));cameraPreview=new TextureView(this);frame.addView(cameraPreview,new FrameLayout.LayoutParams(-1,-1));frame.addView(new TerminalFaceGuide(this,true),new FrameLayout.LayoutParams(-1,-1));
-        resultView=text("正在核验，请保持稳定",18,Color.WHITE);resultView.setGravity(android.view.Gravity.CENTER);resultView.setMinHeight(dp(54));resultView.setPadding(dp(10),dp(12),dp(10),dp(12));resultView.setBackground(background(0xbb172737,0));FrameLayout.LayoutParams hint=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.BOTTOM);hint.setMargins(dp(16),0,dp(16),dp(20));frame.addView(resultView,hint);
-        diagnosticView=text("识别完成后由平台确认入园权限",13,MUTED);diagnosticView.setGravity(android.view.Gravity.CENTER);diagnosticView.setPadding(dp(12),dp(12),dp(12),dp(12));shell.addView(diagnosticView);
-        LinearLayout controls=new LinearLayout(this);controls.setPadding(dp(12),0,dp(12),dp(16));shell.addView(controls);String[] names={"暂停核验","下一位","重新核验"};for(int i=0;i<3;i++){final int action=i;Button button=new Button(this);styleButton(button);button.setTextSize(14);button.setText(names[i]);button.setTextColor(i==0?0xfff05d49:BLUE);button.setBackground(background(Color.WHITE,i==0?0xffff8e80:0xffc3daff));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(dp(4),0,dp(4),0);controls.addView(button,lp);if(i==0)startButton=button;button.setOnClickListener(v->{if(action==0){if("暂停核验".contentEquals(startButton.getText())){camera.stop();startButton.setText("开始核验");resultView.setText("已暂停核验");}else startScanning();}else{if(!"暂停核验".contentEquals(startButton.getText()))startScanning();if("暂停核验".contentEquals(startButton.getText()))runtime.nextAttempt();}});}
-        Button switchLens=new Button(this);styleButton(switchLens);switchLens.setText("切换前 / 后摄像头");switchLens.setTextColor(BLUE);switchLens.setBackground(background(Color.WHITE,0xffdce3ec));shell.addView(switchLens);
-        switchLens.setOnClickListener(v->{if(camera==null)return;boolean resume="暂停核验".contentEquals(startButton.getText());if(camera.selectOtherLens()){startButton.setText("开始核验");resultView.setText("已切换至"+camera.lensName()+"摄像头"+(resume?"":"，点击开始核验"));if(resume)startScanning();switchLens.setText("当前"+camera.lensName()+" · 切换摄像头");}});
-        camera=new TerminalCamera(this,runtime,cameraPreview,error->{lastCameraError=error;diagnosticView.setText(error);startButton.setText("开始核验");});addSupport(shell);setContentView(shell);startScanning();
+        if(!runtime.ready()){showSyncPage();return;}
+        page("人脸核验",false);scanPage=true;final int scanVersion=pageVersion;
+        int width=getResources().getConfiguration().screenWidthDp,height=getResources().getConfiguration().screenHeightDp;
+        boolean twoColumns=width>=680&&width>height;
+        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff5f6f8);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
+        LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(16),dp(12),dp(16),dp(16));scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
+        LinearLayout heading=new LinearLayout(this);heading.setOrientation(LinearLayout.VERTICAL);heading.setPadding(dp(16),dp(16),dp(16),dp(16));heading.setBackground(artwork());round(heading,16);content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);heading.addView(titleRow,new LinearLayout.LayoutParams(-1,-2));
+        TerminalIconView back=new TerminalIconView(this,"back",Color.WHITE);back.setContentDescription("返回核验首页");titleRow.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));back.setOnClickListener(v->showAccount());
+        TextView title=text("人脸核验",22,Color.WHITE);title.setTypeface(null,android.graphics.Typeface.BOLD);titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView scenic=text(runtime.uiProfile().optString("scenicName","等待景区信息"),14,Color.WHITE);scenic.setPadding(dp(4),dp(8),dp(4),0);heading.addView(scenic,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout body=new LinearLayout(this);body.setOrientation(twoColumns?LinearLayout.HORIZONTAL:LinearLayout.VERTICAL);LinearLayout.LayoutParams bodyLp=new LinearLayout.LayoutParams(-1,-2);bodyLp.topMargin=dp(16);content.addView(body,bodyLp);
+        FrameLayout frame=new FrameLayout(this);frame.setBackgroundColor(0xff24384b);frame.setMinimumHeight(dp(240));round(frame,16);
+        int previewHeight=twoColumns?Math.max(240,Math.min(420,height-148)):Math.max(260,Math.min(420,Math.round(width*.9f)));
+        LinearLayout.LayoutParams previewLp=twoColumns?new LinearLayout.LayoutParams(0,dp(previewHeight),1):new LinearLayout.LayoutParams(-1,dp(previewHeight));
+        if(twoColumns)previewLp.rightMargin=dp(16);body.addView(frame,previewLp);
+        cameraPreview=new TextureView(this);frame.addView(cameraPreview,new FrameLayout.LayoutParams(-1,-1));frame.addView(new TerminalFaceGuide(this,true),new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams panelLp=twoColumns?new LinearLayout.LayoutParams(dp(280),-2):new LinearLayout.LayoutParams(-1,-2);if(!twoColumns)panelLp.topMargin=dp(16);body.addView(panel,panelLp);
+        LinearLayout information=card(panel);label(information,"核验状态");
+        resultView=text("正在启动相机，请保持面部无遮挡",18,INK);resultView.setTypeface(null,android.graphics.Typeface.BOLD);resultView.setAccessibilityLiveRegion(android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE);information.addView(resultView,new LinearLayout.LayoutParams(-1,-2));
+        diagnosticView=text("识别人脸后，将由平台确认年卡状态与入园次数。",14,MUTED);diagnosticView.setPadding(0,dp(12),0,0);information.addView(diagnosticView,new LinearLayout.LayoutParams(-1,-2));
+        startButton=action(panel,"开始核验",()->{
+            if(scanState==ScanState.RUNNING){if(camera!=null)camera.stop();runtime.pauseCamera();setScanState(ScanState.PAUSED);resultView.setText("核验已暂停");diagnosticView.setText("相机已停止。点击开始核验后继续识别人脸。");}
+            else startScanning();
+        },true);
+        action(panel,"重新识别当前人员",()->{if(scanState!=ScanState.RUNNING)startScanning();if(scanState==ScanState.RUNNING)runtime.nextAttempt();},false);
+        Button switchLens=action(panel,"切换摄像头",()->{},false);
+        switchLens.setOnClickListener(v->{
+            if(camera==null)return;boolean resume=scanState==ScanState.RUNNING;
+            if(camera.selectOtherLens()){
+                setScanState(ScanState.PAUSED);resultView.setText("已切换至"+camera.lensName()+"摄像头");
+                diagnosticView.setText(resume?"正在恢复核验，请正对镜头":"点击开始核验后使用当前镜头");
+                if(resume)startScanning();switchLens.setText("当前"+camera.lensName()+" · 切换摄像头");
+            }
+        });
+        Button mute=action(panel,voiceLabel(),()->{},false);mute.setOnClickListener(v->{boolean enabled=!localVoice();getSharedPreferences("terminal_audio",MODE_PRIVATE).edit().putBoolean("enabled",enabled).apply();if(!enabled)stopSpeech();mute.setText(voiceLabel());});
+        camera=new TerminalCamera(this,runtime,cameraPreview,error->{
+            if(destroyed||scanVersion!=pageVersion||!scanPage)return;
+            lastCameraError=error;diagnosticView.setText(error);resultView.setText("相机未能启动，核验已暂停");setScanState(ScanState.ERROR);
+        });
+        camera.setStateListener(running->{
+            if(destroyed||scanVersion!=pageVersion||!scanPage)return;
+            if(running){
+                setScanState(ScanState.RUNNING);resultView.setText("请正对镜头，保持面部无遮挡");diagnosticView.setText("正在识别人脸。核验完成后请让下一位进入取景区。");switchLens.setText("当前"+camera.lensName()+" · 切换摄像头");
+            }else if(scanState==ScanState.RUNNING||scanState==ScanState.STARTING){
+                setScanState(ScanState.PAUSED);resultView.setText("相机画面已停止，核验已暂停");diagnosticView.setText("点击开始核验重新打开相机；若仍无画面，请返回设备诊断检查权限和相机占用。");
+            }
+        });
+        switchLens.setText("当前"+camera.lensName()+" · 切换摄像头");
+        addSupport(content);setContentView(shell);startScanning();
     }
     private boolean syncPage,maintenancePage;
     private String count(JSONObject data,String key){return data!=null&&data.has(key)&&!data.isNull(key)?String.valueOf(data.optLong(key)):"等待平台返回";}
@@ -476,7 +591,25 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         action(root,"平台连接设置",this::showPlatformSettings,false);action(root,"重新验证原账号",this::showLogin,false);
         Button logout=action(root,"同步后退出账号",()->{},false);logout.setOnClickListener(v->{logout.setEnabled(false);status.setText("正在确认原账号记录、人员任务和回执…");runtime.exit(error->{if(destroyed)return;logout.setEnabled(true);if(error!=null)status.setText(error);else if(!runtime.hasSession())showLogin();});});TextView note=text("ⓘ 原账号记录确认完成后才能切换",12,MUTED);note.setGravity(android.view.Gravity.CENTER);root.addView(note);
     }
-    private void startScanning(){if(camera==null||!runtime.startCamera()){status.setText("请等待设备就绪后开始核验");if(scanPage&&resultView!=null)resultView.setText("设备尚未就绪，请返回查看同步状态");return;}cameraPreview.setVisibility(android.view.View.VISIBLE);if(!camera.start())return;startButton.setText("暂停核验");resultView.setText("请正对摄像头，每次核验后移开");}
+    private void startScanning(){
+        if(camera==null||!runtime.startCamera()){
+            setScanState(ScanState.UNAVAILABLE);
+            if(status!=null)status.setText("当前设备未就绪，请查看同步状态");
+            if(scanPage&&resultView!=null){resultView.setText("暂时无法开始核验");diagnosticView.setText(TerminalMessages.friendly(lastState)+"。请返回首页查看同步或连接状态。");}
+            return;
+        }
+        setScanState(ScanState.STARTING);cameraPreview.setVisibility(android.view.View.VISIBLE);
+        resultView.setText("正在启动相机，请稍候");diagnosticView.setText("等待相机预览画面，画面就绪后开始识别。");
+        final int version=pageVersion;
+        scanStartupTimeout=()->{
+            if(destroyed||version!=pageVersion||!scanPage||scanState!=ScanState.STARTING)return;
+            if(camera!=null)camera.stop();runtime.pauseCamera();setScanState(ScanState.ERROR);
+            lastCameraError="相机预览超过8秒仍未就绪，请重新开始；若再次失败，请返回首页并检查相机权限或其他应用占用";
+            resultView.setText("相机启动超时，核验已暂停");diagnosticView.setText(lastCameraError);
+        };
+        main.postDelayed(scanStartupTimeout,8000);
+        if(!camera.start()){runtime.pauseCamera();setScanState(ScanState.ERROR);}
+    }
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request!=200)return;
@@ -565,7 +698,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(!hasSession&&authorized&&!baiduSettingsOpen&&(accountPage||scanPage||resultPage||syncPage||maintenancePage)){showLogin();return;}
         if(accountPage){homeStatus(value);JSONObject p=runtime.uiProfile();if(homeChips!=null){homeChips[1].setText(connectionLabel());homeChips[2].setText(p.optBoolean("sdkReady")?"算法就绪":"算法准备中");}if(homeAccount!=null)homeAccount.setText(p.optString("scenicName","等待景区同步")+" · "+p.optString("accountName","等待账号同步"));if(startButton!=null){startButton.setText(ready?"开始核验":"查看同步进度");startButton.setEnabled(true);}}
         if(resultPage&&resultReceipt!=null)resultReceipt.setText(receiptText());
-        if(scanPage){status.setText(value);if(!ready){if(diagnosticView!=null)diagnosticView.setText(value);if(camera!=null)camera.stop();startButton.setText("开始核验");}startButton.setEnabled(ready);}
+        if(scanPage){status.setText(value);if(!ready){if(diagnosticView!=null)diagnosticView.setText(value);if(resultView!=null)resultView.setText("核验已暂停，请按下方原因处理");if(camera!=null)camera.stop();setScanState(ScanState.UNAVAILABLE);}if(startButton!=null)startButton.setEnabled(ready&&scanState!=ScanState.STARTING);}
     }
     @Override public void diagnostics(String value){if(!destroyed&&scanPage&&diagnosticView!=null)diagnosticView.setText(value);}
     @Override public void communication(String value){if(!destroyed&&communication!=null){if(deviceNameView!=null)deviceNameView.setText(runtime.deviceName());communication.setText(TerminalMessages.friendly(value));if(maintenanceConnection!=null)maintenanceConnection.setText(TerminalMessages.friendly(value).replace("平台通信：",""));if(accountPage&&homeChips!=null)homeChips[1].setText(connectionLabel());}}
@@ -670,10 +803,10 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     @Override protected void onResume() { super.onResume();foreground=true;if(license!=null&&license.state().authorized()&&(activationPage||(loginPage&&loginCompleted&&runtime.hasSession()&&!runtime.signingIn()))){authorized=true;if(runtime.hasSession())showAccount();else showLogin();}updateVoiceStatus();if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics.run();}if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics.run();}if(accountPage){homeStatus(lastState);if(startButton!=null)startButton.setText(runtime.ready()?"开始核验":"查看同步进度");if(camera!=null&&cameraAllowed())camera.preview();} }
     @Override protected void onPause() {
         foreground=false;stopSpeech();if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);
-        if(camera!=null)camera.stop();runtime.pauseCamera();if(startButton!=null)startButton.setText("开始核验");super.onPause();
+        if(camera!=null)camera.stop();runtime.pauseCamera();if(scanPage){setScanState(ScanState.PAUSED);if(resultView!=null)resultView.setText("已暂停核验，返回后点击开始核验");}else if(startButton!=null)startButton.setText("开始核验");super.onPause();
     }
     @Override protected void onDestroy() {
-        destroyed=true;if(speechTimeout!=null)main.removeCallbacks(speechTimeout);stopSpeech();if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);adminWorker.shutdownNow();pageVersion++;if(license!=null)license.detach(this);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
+        destroyed=true;if(scanStartupTimeout!=null)main.removeCallbacks(scanStartupTimeout);resetBrandImages();if(brandImages!=null)brandImages.close();if(speechTimeout!=null)main.removeCallbacks(speechTimeout);stopSpeech();if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);adminWorker.shutdownNow();pageVersion++;if(license!=null)license.detach(this);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
     }
 }
 

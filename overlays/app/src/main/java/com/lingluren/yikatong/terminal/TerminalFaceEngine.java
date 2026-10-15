@@ -89,7 +89,7 @@ public final class TerminalFaceEngine {
     }
     private byte[] feature(BDFaceImageInstance image,FaceInfo face){
         byte[] bytes=new byte[TerminalSdkContract.FEATURE_BYTES];float size=feature.feature(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,image,face.landmarks,bytes);
-        if(!TerminalSdkContract.featureSucceeded(size))throw new IllegalStateException("SDK特征提取失败（返回值："+size+"），请检查算法状态");return bytes;
+        if(!TerminalSdkContract.featureSucceeded(size))throw new IllegalStateException("算法特征提取失败（返回值："+size+"），请检查算法状态");return bytes;
     }
     public static final class PhotoRejectedException extends Exception {
         PhotoRejectedException(String message){super(message);}

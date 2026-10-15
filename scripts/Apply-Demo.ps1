@@ -4,6 +4,8 @@ $work = Join-Path $root 'demo-work'
 if(-not (Test-Path (Join-Path $work 'app\build.gradle'))) { throw 'Prepare demo-work first. Do not reimport over your working copy.' }
 $gradle = [IO.File]::ReadAllText((Join-Path $work 'app\build.gradle'))
 if($gradle -notmatch 'com\.lingluren\.yikatong\.terminal') { throw 'Application ID mismatch' }
+$settingsGradlePath = Join-Path $work 'settinglibrary\build.gradle'
+if(-not (Test-Path -LiteralPath $settingsGradlePath -PathType Leaf)) { throw 'settinglibrary/build.gradle 缺失；请恢复完整 Demo，不能在缺少原厂模块配置时继续构建。' }
 # Restore the vendor's complete parameter UI from the untouched local Demo.
 $originalSettings = Join-Path $root 'demo-local\settinglibrary\src\main'
 if(Test-Path $originalSettings) {
@@ -19,6 +21,40 @@ Get-ChildItem -LiteralPath $overlays -File -Recurse | ForEach-Object {
  New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
  Copy-Item -LiteralPath $_.FullName -Destination $target -Force
 }
+# The maintained settings screen uses Java 8 lambdas. Set the module language
+# level without rewriting vendor dependencies or any unmarked Gradle content.
+$settingsGradle = [IO.File]::ReadAllText($settingsGradlePath)
+$java8Begin = '// BEGIN YKT SETTINGLIBRARY JAVA8'
+$java8End = '// END YKT SETTINGLIBRARY JAVA8'
+$beginMatches = [regex]::Matches($settingsGradle, '(?m)^[ \t]*' + [regex]::Escape($java8Begin) + '[ \t]*\r?$')
+$endMatches = [regex]::Matches($settingsGradle, '(?m)^[ \t]*' + [regex]::Escape($java8End) + '[ \t]*\r?$')
+if($beginMatches.Count -ne $endMatches.Count -or $beginMatches.Count -gt 1) { throw 'settinglibrary/build.gradle 中 Java 8 维护标记不完整或重复；未覆盖原文件，请检查标记。' }
+$newline = if($settingsGradle.Contains("`r`n")) { "`r`n" } else { "`n" }
+$java8Block = @'
+// BEGIN YKT SETTINGLIBRARY JAVA8
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+// END YKT SETTINGLIBRARY JAVA8
+'@
+$java8Block = $java8Block -replace '\r?\n', $newline
+if($beginMatches.Count -eq 1) {
+ $start = $beginMatches[0].Index
+ $end = $endMatches[0].Index + $endMatches[0].Length
+ if($endMatches[0].Index -le $start) { throw 'settinglibrary/build.gradle 的 Java 8 维护标记顺序错误；未覆盖原文件。' }
+ # Match includes a CR on CRLF files; retain it with the original trailing LF.
+ if($end -gt 0 -and $settingsGradle[$end - 1] -eq "`r") { $end-- }
+ $settingsGradle = $settingsGradle.Substring(0,$start) + $java8Block + $settingsGradle.Substring($end)
+} else {
+ if($settingsGradle.Length -gt 0 -and -not $settingsGradle.EndsWith("`n")) { $settingsGradle += $newline }
+ $settingsGradle += $java8Block + $newline
+}
+[IO.File]::WriteAllText($settingsGradlePath,$settingsGradle,(New-Object Text.UTF8Encoding($false)))
+Write-Host 'settinglibrary Java 8 compileOptions applied; vendor dependencies retained.'
+
 $path = Join-Path $work 'app\src\main\AndroidManifest.xml'
 $xml = New-Object System.Xml.XmlDocument
 $xml.Load($path)

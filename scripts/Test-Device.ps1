@@ -1,5 +1,6 @@
-param([string]$Serial = '', [switch]$Install, [switch]$VerifyJournal)
+param([string]$Serial = '', [switch]$Install, [switch]$VerifyJournal, [switch]$InstallOnly)
 $ErrorActionPreference = 'Stop'
+if($InstallOnly -and (-not $Install -or $VerifyJournal)) { throw '-InstallOnly 必须同时指定 -Install，且不能与 -VerifyJournal 一起使用。' }
 $root = Split-Path $PSScriptRoot -Parent
 $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 $adb = Join-Path $sdk 'platform-tools\adb.exe'
@@ -15,6 +16,7 @@ if($Install) {
  $receiptPath = Join-Path $root 'demo-work\app\build\outputs\apk\release\app-release.verified.json'
  if(-not (Test-Path -LiteralPath $receiptPath)) { throw 'Run Build-Demo successfully before installing; no verified build receipt found' }
  $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+ if($receipt.testsStatus -eq 'DEFERRED' -and -not $InstallOnly) { throw 'TESTS_DEFERRED：此 APK 延后了测试；只安装请显式指定 -Install -InstallOnly，或先重新构建并执行测试。' }
  if($receipt.sha256 -ne (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash -or -not $receipt.phonePermissionRemoved) { throw 'APK differs from verified build; rebuild before installation' }
  $sdkLevel = (& $adb -s $Serial shell getprop ro.build.version.sdk | Out-String).Trim()
  if($LASTEXITCODE -ne 0 -or $sdkLevel -notmatch '^\d+$' -or [int]$sdkLevel -lt 21) { throw 'Android 5.0 / API 21 or newer is required' }
@@ -29,6 +31,15 @@ if($Install) {
  if($LASTEXITCODE -ne 0) { throw 'Release signature verification failed' }
  & $adb -s $Serial install -r $apk
  if($LASTEXITCODE -ne 0) { throw 'APK installation failed; existing app and data retained' }
+}
+if($InstallOnly) {
+ $package = 'com.lingluren.yikatong.terminal'
+ $launchOutput = @(& $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity" 2>&1)
+ $launchExit = $LASTEXITCODE
+ $launchOutput | ForEach-Object { Write-Host $_ }
+ if($launchExit -ne 0 -or ($launchOutput | Out-String) -match '(?im)^\s*(Error(?::| type)|Exception|Status:\s*(?:timeout|error))') { throw 'APK 已安装，但启动命令失败；请回传错误输出。' }
+ Write-Warning 'TESTS_DEFERRED：仅完成覆盖安装与启动命令，未执行进程存活、journal、刷脸或业务验收。'
+ return
 }
 $journalFailure=$null
 if($VerifyJournal) {

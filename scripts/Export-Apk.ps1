@@ -1,11 +1,11 @@
-param([string]$OutputDirectory = '')
+param([string]$OutputDirectory = '', [switch]$DeferTests)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if(-not (Test-Path -LiteralPath (Join-Path $root 'signing.properties'))) {
  throw 'Restore the existing signing.properties before exporting an update; do not generate a different signing key.'
 }
 # Build-Demo throws on test, Lint, build or APK signature verification failures.
-& (Join-Path $PSScriptRoot 'Build-Demo.ps1')
+& (Join-Path $PSScriptRoot 'Build-Demo.ps1') -DeferTests:$DeferTests
 $source = Join-Path $root 'demo-work\app\build\outputs\apk\release\app-release.apk'
 if(-not (Test-Path -LiteralPath $source)) { throw 'Release APK missing after build' }
 if(-not $OutputDirectory) {
@@ -31,6 +31,8 @@ try {
   $changes = & git -C $root status --porcelain
   if($LASTEXITCODE -eq 0) { if($changes) { $workingTree='modified' } else { $workingTree='clean' } }
  }
+ $testStatus = if($DeferTests) { 'DEFERRED' } else { 'COMPLETED' }
+ $buildGate = if($DeferTests) { 'Release build, signature and permission checks only; tests/Lint deferred' } else { 'Host tests, release build, Lint, unit tests, signature and permission checks completed' }
  $receipt = @(
   "APK=$([IO.Path]::GetFileName($destination))",
   "Version=$version",
@@ -38,7 +40,9 @@ try {
   "SourceCommit=$revision",
   "WorkingTree=$workingTree",
   "BuiltAt=$([DateTimeOffset]::Now.ToString('o'))",
-  'BuildGate=Build-Demo completed (host tests, release build, Lint, unit tests, signature verification)',
+  "BuildGate=$buildGate",
+  "Tests=$testStatus",
+  'BusinessAcceptance=NOT VERIFIED',
   'DeviceAcceptance=NOT VERIFIED',
   'Signing keys, passwords and authorization data are NOT included.'
  ) -join "`r`n"
@@ -49,4 +53,5 @@ try {
 }
 Write-Host "APK exported: $destination" -ForegroundColor Green
 Write-Host "SHA256: $exportHash"
+if($DeferTests) { Write-Warning 'TESTS_DEFERRED：导出的 APK 尚未通过测试与业务验收。' }
 try { Start-Process explorer.exe -ArgumentList ('"' + $folder + '"') } catch { Write-Warning 'Could not open Explorer; use the output path above.' }

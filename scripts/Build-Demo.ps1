@@ -1,3 +1,4 @@
+param([switch]$DeferTests)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $root 'demo-work'
@@ -11,7 +12,11 @@ if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.
 }
 $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
 & java -version
-& (Join-Path $PSScriptRoot 'Test-Client.ps1')
+if($DeferTests) {
+ Write-Warning 'TESTS_DEFERRED：仅构建 APK，并校验签名和必要权限；主机测试、Lint、单元测试延后，尚未验收。'
+} else {
+ & (Join-Path $PSScriptRoot 'Test-Client.ps1')
+}
 $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 if(-not (Test-Path (Join-Path $env:ANDROID_HOME 'platforms\android-29\android.jar'))) { throw 'Android platform 29 missing' }
 [IO.File]::WriteAllText((Join-Path $work 'local.properties'),'sdk.dir='+$env:ANDROID_HOME.Replace('\','/')+"`n",(New-Object Text.UTF8Encoding($false)))
@@ -42,10 +47,12 @@ if(-not (Test-Path -LiteralPath $signing)) {
 }
 Push-Location $work
 try {
- & .\gradlew.bat --no-daemon :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
+ $tasks = @(':app:assembleRelease')
+ if(-not $DeferTests) { $tasks += @(':app:lintRelease', ':app:testReleaseUnitTest') }
+ & .\gradlew.bat --no-daemon @tasks
  if($LASTEXITCODE -ne 0) {
   $lintReport = Join-Path $work 'app\build\intermediates\lint_intermediate_text_report\release\lint-results-release.txt'
-  if(Test-Path -LiteralPath $lintReport) {
+  if(-not $DeferTests -and (Test-Path -LiteralPath $lintReport)) {
    Write-Host ('Lint report (may include previous run results): '+$lintReport)
    $lintErrors = @(Select-String -LiteralPath $lintReport -Encoding UTF8 -Pattern '\bError:' -Context 0,2)
    foreach($issue in $lintErrors) {
@@ -70,10 +77,12 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'Cannot inspect final APK permissions' }
  if(($permissions | Out-String) -match 'android\.permission\.READ_PHONE_STATE') { throw 'READ_PHONE_STATE still present in final APK; fingerprint compatibility fix was not applied' }
  $apkHash = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash
- $receipt = @{ sha256=$apkHash; verifiedAt=[DateTimeOffset]::Now.ToString('o'); phonePermissionRemoved=$true } | ConvertTo-Json
+ $testStatus = if($DeferTests) { 'DEFERRED' } else { 'COMPLETED' }
+ $receipt = @{ sha256=$apkHash; verifiedAt=[DateTimeOffset]::Now.ToString('o'); phonePermissionRemoved=$true; testsStatus=$testStatus; businessAcceptance='NOT_VERIFIED'; deviceAcceptance='NOT_VERIFIED' } | ConvertTo-Json
  [IO.File]::WriteAllText($verified,$receipt,(New-Object Text.UTF8Encoding($false)))
  Get-FileHash -LiteralPath $apk -Algorithm SHA256
  Write-Host ('APK: '+$apk)
+ if($DeferTests) { Write-Warning 'TESTS_DEFERRED：APK 已构建；未执行自动化、业务、性能或真机验收。' }
  Write-Host 'Session V2 APK built. Deploy matching platform first; complete real-phone activation, sync, admission, restart, offline retry and account-switch checks.'
 } finally { Pop-Location }
 

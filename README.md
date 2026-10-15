@@ -1,12 +1,16 @@
 # 一卡通景区刷脸核验端
 
+> 当前交付：**0.7.12-repair / 131**。第一批审计修复的代码与配套平台同时交付，先更新平台，再覆盖安装 APP。当前状态以 [本批修复记录](docs/REPAIR-BATCH-1-2026-10-15.md) 和需求台账最新段落为准。
+> 按用户要求，本批**未运行测试、自动化、编译、APK 构建或真机验收**。下文旧版本的测试记录只属于对应旧提交；不得据此将本批标为通过。暂缓 AUD-14、AUD-19。
+> 需自行生成安装包时，显式使用 `scripts/Export-Apk.ps1 -DeferTests`；仅覆盖安装与启动使用 `scripts/Test-Device.ps1 -Install -InstallOnly`。正式签名和授权保持原有文件，不能卸载或清数据代替更新。固定提交拉取命令以本次交付消息为准。
+
 需求与完成情况请查看 [需求进度台账](docs/REQUIREMENTS-STATUS.md)，区分代码实现、部署与现场验收。
 
 0.7.8 新增批量人员回执、限流等待、一次性维护码及实际生效设置说明。先更新配套平台；审计仍有未完成项，详见平台`docs/testing/AUDIT-REMEDIATION-2026-10-15.md`。
 
 0.7.7 新增[算法授权保存与卸载重装恢复](docs/ALGORITHM-LICENSE-RECOVERY.md)：同签名更新自动校验，误卸载后登录恢复已备份授权码。先更新平台再更新 APP。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.11-ui`（130）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.12-repair`（131）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 
@@ -14,7 +18,7 @@
 
 配套平台使用 `hliujies-hue/linglurenyikatong` 的 `main` 分支。0.7.7 的授权自动恢复需要配套平台更新，具体提交见本轮交付命令及需求台账。先更新平台，再构建和覆盖安装 APP。Git 使用 SSH，不自动运行 GitHub Actions。
 
-已完成 Java 编译检查（Android 29 与所提供百度 SDK 的实际类型）、HTTPS 目标校验及连续人脸去重测试。尚未在本执行环境完成完整 Gradle APK 构建、签名校验和真机业务验收；不能把源代码编译检查当成 APK 已安装或已通过验票验收。
+历史版本曾完成 Java 编译检查（不代表 0.7.12-repair 已验证；Android 29 与所提供百度 SDK 的实际类型）、HTTPS 目标校验及连续人脸去重测试。尚未在本执行环境完成完整 Gradle APK 构建、签名校验和真机业务验收；不能把源代码编译检查当成 APK 已安装或已通过验票验收。
 
 Windows 已连接真机时：
 
