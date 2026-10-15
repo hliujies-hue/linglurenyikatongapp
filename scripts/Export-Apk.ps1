@@ -15,6 +15,9 @@ $gradle = Get-Content -LiteralPath (Join-Path $root 'overlays\app\build.gradle')
 $versionMatch = [regex]::Match($gradle, 'versionName\s+"([A-Za-z0-9._-]+)"')
 if(-not $versionMatch.Success) { throw 'Cannot read APK version name' }
 $version = $versionMatch.Groups[1].Value
+$codeMatch = [regex]::Match($gradle, 'versionCode\s+(\d+)')
+if(-not $codeMatch.Success) { throw 'Cannot read APK version code' }
+$versionCode = $codeMatch.Groups[1].Value
 $folder = Join-Path $OutputDirectory ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
 $destination = Join-Path $folder ("yikatong-$version.apk")
@@ -36,6 +39,8 @@ try {
  $receipt = @(
   "APK=$([IO.Path]::GetFileName($destination))",
   "Version=$version",
+  "VersionCode=$versionCode",
+  "PackageName=com.lingluren.yikatong.terminal",
   "SHA256=$exportHash",
   "SourceCommit=$revision",
   "WorkingTree=$workingTree",

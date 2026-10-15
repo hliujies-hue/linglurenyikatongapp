@@ -447,3 +447,10 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 基于484a36c5d88328e81a67801c6197970597d00504，本节与代码同提交。使用scripts/Export-Apk.ps1 -DeferTests在已有完整环境构建，成功后选择demo-work/app/build/outputs/apk/release/app-release.apk上传；不要上传旧包或把Git拉取成功当作打包成功。
 - 若现场或在线任务已占用132，须提高两处版本后重新构建，不能回退平台计数器。平台上传不会改写包内品牌。
 - 仅源码检查；按用户安排未运行测试、Gradle打包、真实验签或真机安装，尚无已生成的新APK。平台部署和服务器校验工具/原证书配置是后台上传启用的前提；APP内下载校验和系统安装闭环继续后续。
+
+## REQ-MANUAL-RELEASE-COPYRIGHT-20261016：本地打包与APP版权网址
+
+- 用户选择手工上传；继续使用Export-Apk.ps1本地原签名打包，不安装或启用自动构建任务。导出build-info.txt补充VersionCode和PackageName，与Version/SHA256/SourceCommit一起供手工登记。
+- TerminalEntryActivity底部版权使用平台supportText/supportUrl；HTTPS网址通过系统浏览器打开，留空网址不跳转，空文字隐藏；同步刷新点击行为与辅助说明，打开失败给出提示。默认网址仍https://linglu.ren。
+- 配套版本0.7.14-branding/133，同步Gradle和TerminalProtocol；原签名、包名、SDK授权与本地待同步记录保留。基于3cef3ecb9371a14ba4b5d2c1322f10535f85ddd5，本节与实现同提交。
+- 仅源码审阅，未运行测试、编译、打包或真机安装。首次需覆盖安装新版；之后版权文字和跳转网址可在线配置。手工上传到可用HTTPS下载地址后，在平台保存版本、摘要及更新说明。

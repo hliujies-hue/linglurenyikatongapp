@@ -52,11 +52,23 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         BrandSlot(boolean icon){this.icon=icon;}
     }
     private final BrandSlot iconSlot=new BrandSlot(true),backgroundSlot=new BrandSlot(false);
+    private void applySupportConfig(){
+        if(brandSupport==null)return;
+        JSONObject config=runtime.appConfig();
+        String label=config.optString("supportText","河北领路人科技有限公司 提供技术支持");
+        String raw=config.optString("supportUrl","https://linglu.ren");
+        android.net.Uri uri=android.net.Uri.parse(raw);
+        boolean valid="https".equals(uri.getScheme())&&uri.getHost()!=null&&!uri.getHost().isEmpty()&&uri.getUserInfo()==null&&!raw.matches(".*[\\s\\p{Cntrl}].*");
+        brandSupport.setText(label);brandSupport.setVisibility(label.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);
+        brandSupport.setContentDescription(label+(valid?"，点击打开网址":""));
+        brandSupport.setOnClickListener(valid?v->{try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(android.content.ActivityNotFoundException|SecurityException e){Toast.makeText(this,"无法打开浏览器，请联系管理员检查跳转网址",Toast.LENGTH_LONG).show();}}:null);
+        brandSupport.setClickable(valid);
+    }
     private void applyAppConfig(){
         JSONObject c=runtime.appConfig();
         if(brandHeading!=null)brandHeading.setText(c.optString("appName","一卡通核验端"));
         if(brandSubtitle!=null)brandSubtitle.setText(c.optString("subtitle","景区年卡核验"));
-        if(brandSupport!=null)brandSupport.setText(c.optString("supportText","河北领路人科技有限公司 提供技术支持"));
+        applySupportConfig();
         if(deviceNameView!=null)deviceNameView.setText(runtime.deviceName());
         String notice=runtime.appBlockedReason();String announcement=c.optString("announcement");if(!announcement.isEmpty())notice+=(notice.isEmpty()?"":"\n")+announcement;
         try{if(!c.optString("latestVersion").isEmpty()&&TerminalAppPolicy.older(TerminalProtocol.VERSION,c.optString("latestVersion")))notice+=(notice.isEmpty()?"":"\n")+"发现新版本 "+c.optString("latestVersion")+"，点击查看更新";}catch(Exception ignored){}
@@ -303,7 +315,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         setContentView(shell);applyAppConfig();return root;
     }
     private void addSupport(LinearLayout shell){
-        TextView support=text(runtime.appConfig().optString("supportText","河北领路人科技有限公司 提供技术支持"),11,MUTED);brandSupport=support;support.setGravity(android.view.Gravity.CENTER);support.setPadding(dp(8),dp(9),dp(8),dp(9));support.setMinHeight(dp(40));support.setBackgroundColor(Color.WHITE);support.setContentDescription("河北领路人科技有限公司 提供技术支持，打开官方网站");support.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://linglu.ren")));}catch(android.content.ActivityNotFoundException e){Toast.makeText(this,"请在浏览器访问 linglu.ren",Toast.LENGTH_LONG).show();}});shell.addView(support,new LinearLayout.LayoutParams(-1,-2));
+        TextView support=text(runtime.appConfig().optString("supportText","河北领路人科技有限公司 提供技术支持"),11,MUTED);brandSupport=support;support.setGravity(android.view.Gravity.CENTER);support.setPadding(dp(8),dp(9),dp(8),dp(9));support.setMinHeight(dp(40));support.setBackgroundColor(Color.WHITE);applySupportConfig();shell.addView(support,new LinearLayout.LayoutParams(-1,-2));
     }
     private boolean cameraAllowed(){return Build.VERSION.SDK_INT<23||checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}
     private void explainPermissions(){
@@ -809,4 +821,5 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         destroyed=true;if(scanStartupTimeout!=null)main.removeCallbacks(scanStartupTimeout);resetBrandImages();if(brandImages!=null)brandImages.close();if(speechTimeout!=null)main.removeCallbacks(speechTimeout);stopSpeech();if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);adminWorker.shutdownNow();pageVersion++;if(license!=null)license.detach(this);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
     }
 }
+
 
