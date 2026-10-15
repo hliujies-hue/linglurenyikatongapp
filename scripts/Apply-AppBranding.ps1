@@ -18,6 +18,34 @@ $manifest=Join-Path $Work 'app\src\main\AndroidManifest.xml'
 $xml=New-Object System.Xml.XmlDocument
 $xml.Load($manifest)
 $android='http://schemas.android.com/apk/res/android'
+# Branding is owned by the main application, not by vendor library manifests.
+# Merge only these attribute markers; preserve unrelated tools:replace entries.
+function Save-BrandManifest {
+ $toolsNamespace='http://schemas.android.com/tools'
+ $namespace=$xml.CreateAttribute('xmlns','tools','http://www.w3.org/2000/xmlns/')
+ $namespace.Value=$toolsNamespace
+ [void]$xml.manifest.Attributes.SetNamedItem($namespace)
+ $application=$xml.manifest.application
+ $replacements=New-Object 'System.Collections.Generic.List[string]'
+ foreach($entry in ($application.GetAttribute('replace',$toolsNamespace) -split ',')) {
+  $entry=$entry.Trim()
+  if($entry -and -not $replacements.Contains($entry)) { [void]$replacements.Add($entry) }
+ }
+ foreach($attribute in @('label','icon','roundIcon')) {
+  $entry='android:'+$attribute
+  if($application.HasAttribute($attribute,$android)) {
+   if(-not $replacements.Contains($entry)) { [void]$replacements.Add($entry) }
+  } else {
+   # tools:replace requires an actual higher-priority value. Restoring defaults
+   # can remove roundIcon, so its old replacement marker must also be removed.
+   [void]$replacements.Remove($entry)
+  }
+ }
+ $replace=$xml.CreateAttribute('tools','replace',$toolsNamespace)
+ $replace.Value=$replacements -join ','
+ [void]$application.Attributes.SetNamedItem($replace)
+ $xml.Save($manifest)
+}
 [void]$xml.manifest.application.SetAttribute('label',$android,$name)
 foreach($activity in @($xml.manifest.application.SelectNodes('activity'))){
  if($activity.GetAttribute('name',$android) -eq 'com.lingluren.yikatong.terminal.TerminalEntryActivity'){[void]$activity.SetAttribute('label',$android,$name)}
@@ -50,7 +78,7 @@ if(-not $icon) {
  }
  # Save the restored references first; a failure never leaves a manifest
  # referencing a deleted icon. A leftover unreferenced file can be retried.
- $xml.Save($manifest)
+ Save-BrandManifest
  if(Test-Path -LiteralPath $generatedIcon) { Remove-Item -LiteralPath $generatedIcon -Force }
  Write-Host "桌面品牌已恢复默认图标，应用名称：$name。"
  return
@@ -86,5 +114,5 @@ if($icon){
   if($temporaryIcon -and (Test-Path -LiteralPath $temporaryIcon)) { Remove-Item -LiteralPath $temporaryIcon -Force }
  }
 }
-$xml.Save($manifest)
+Save-BrandManifest
 Write-Host "桌面品牌配置已应用：$name；配置版本 $($config.revision)。包名与签名保持原构建配置。"

@@ -422,3 +422,12 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 | REPAIR-007 | 当前台账与报告快照可追溯；旧0.7.8文档标历史 | docs与README | 代码实现不等于验收；后续按下一批清单继续 |
 
 本批明确未运行测试、自动化、压力测试、编译/构建、线上操作和真机检查；旧阶段通过记录不计入本批。先更新配套平台并迁移，再使用原签名覆盖安装；不卸载、不清未确认记录。执行命令固定提交见本次交付消息。本批Git提交使用[skip ci]，不自动运行Actions。
+
+
+## 2026-10-15 构建阻断修复：品牌清单属性合并
+
+- 现场证据：用户已拉取 `ffd57996ca770ac1a2869715a9b72c3c25739961`，在 `:app:processReleaseMainManifest` 失败。主应用中文名称与 facelibrary 的 `@string/app_name` 冲突，APK未构建成功、未进入安装。
+- 根因与修复：`scripts/Apply-AppBranding.ps1` 设置 label/icon/roundIcon 后缺少主应用属性覆盖声明。默认品牌、自定义品牌两个保存分支统一按实际存在的属性合并 `tools:replace`；保留其他已有替换项、去重，恢复默认时移除无实际值的 roundIcon 替换标记。不是使用 tools:node=replace 替换整个 application。
+- 提交依据：本节与修复脚本同提交，基于上述APP提交；APP版本仍为0.7.12-repair/131，本次仅修正构建生成脚本。平台无需为此修复重复更新。
+- 验证：仅静态检查两条保存路径和命名空间/标记处理；按用户此前要求未运行测试、自动化、PowerShell脚本、Gradle编译或真机安装。需用户执行固定提交构建命令后确认；不得将此前220个任务日志当作构建成功。
+- 保留原签名、包名、授权、未确认记录及第三方库清单；不删除Gradle缓存、不卸载、不安装旧APK。
