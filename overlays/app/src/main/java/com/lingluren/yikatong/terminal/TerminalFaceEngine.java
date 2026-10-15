@@ -34,7 +34,7 @@ public final class TerminalFaceEngine {
     private final TerminalIndexLedger.NativeIndex nativeIndex=new TerminalIndexLedger.NativeIndex(){public int push(int id,byte[] f){return search.pushPersonById(id,f);}public int delete(int id){return search.delPersonById(id);}};
     public boolean ready(){return ready;}
     public interface Progress {void update(long loaded,long total,long elapsed);}
-    private TerminalIndexRestore restore;
+    private volatile TerminalIndexRestore restore;
     private long restoreStarted;
     public boolean loading(){return restore!=null&&!ready;}
     public void invalidateLibrary(){ready=false;restore=null;}

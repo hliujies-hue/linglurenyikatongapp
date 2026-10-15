@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** One serial owner of camera decisions, native SDK, journal, synchronization and exit barrier. */
+/** Runtime actor owns sessions/network/journal; algorithm queue alone owns native SDK calls. */
 public final class TerminalRuntime {
     public interface Listener { void status(String text,boolean ready,boolean hasSession); void result(String text,String speech,boolean open,String type); void communication(String text); void diagnostics(String text); }
     public interface Done { void done(String error); }
@@ -23,6 +23,7 @@ public final class TerminalRuntime {
     private final TerminalStore store;
     private final TerminalPresence presence;
     private final TerminalFaceEngine engine=new TerminalFaceEngine();
+    private final TerminalAlgorithmQueue algorithms=new TerminalAlgorithmQueue();
     private final TerminalAttemptGate gate=new TerminalAttemptGate();
     private final ScheduledExecutorService actor=Executors.newSingleThreadScheduledExecutor();
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -45,9 +46,10 @@ public final class TerminalRuntime {
     private long lastLoadNotice;
     private volatile String overview="平台信息：等待同步";
     private String lastPhotoIssue="";
-    private long lastGuidance,lastDiagnostics;
+    private volatile long lastGuidance,lastDiagnostics;
     private volatile String lastStatus="正在恢复设备状态";
-    private JSONObject session,feedback=new JSONObject();
+    private volatile JSONObject session;
+    private JSONObject feedback=new JSONObject();
     private PlatformClient client;
     // Credentials are kept only for this in-flight login; passwords are never stored.
     private PendingLogin pendingLogin;
@@ -59,6 +61,7 @@ public final class TerminalRuntime {
     public boolean signingIn(){return signingIn;}
     private TerminalRuntime(Context context){
         this.context=context;store=new TerminalStore(context);
+        store.migrationListener((table,count)->emit("正在升级本机数据加密："+("faces".equals(table)?"人脸特征":"events".equals(table)?"核验记录":"sessions".equals(table)?"账号会话":"设备配置")+"，已处理至编号 "+count+"；请保持应用运行，完成后自动恢复"));
         presence=new TerminalPresence(context,store,text->{Listener view=listener;if(view!=null)view.communication(text);});
         actor.execute(()->{try{session=store.active();hasSession=session!=null;if(hasSession)connect();String cfg=store.metadata("feedback","{}");feedback=new JSONObject(cfg);emit(hasSession?"已恢复原账号，等待设备授权":"请登录景区子账号，已激活设备将自动恢复算法授权");}catch(Exception e){failure(e);}});
         actor.scheduleWithFixedDelay(this::tick,1+jitter.nextInt(5),1,TimeUnit.SECONDS);
@@ -96,22 +99,22 @@ public final class TerminalRuntime {
     public void beginSettings(Done done){
         settingsOpen=true;ready=false;pauseCamera();
         actor.execute(()->{try{
-            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");
+            algorithms.call(()->{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");return null;});
             complete(done,null);
         }catch(Exception e){settingsOpen=false;complete(done,safe(e));}});
     }
     public void endSettings(){
         actor.execute(()->{try{
-            if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");
-            if(engine.ready())engine.applySettings();
+            algorithms.call(()->{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");return null;});
+            if(engine.ready())algorithms.call(()->{engine.applySettings();return null;});
             settingsOpen=false;ready=false;nextTick=0;emit("算法设置已读取，正在重新同步平台状态；请手动开始核验");tick();
         }catch(Exception e){ready=false;settingsOpen=false;modelFailed=true;failure(e);}});
     }
     public void authorize(){authorized=true;actor.execute(()->{if(pendingLogin!=null)finishLogin(pendingLogin);nextTick=0;tick();});}
     public void activationFailed(String error){actor.execute(()->{if(pendingLogin!=null)failLogin(pendingLogin,error);});}
     public void pauseCamera(){scanning=false;viewEpoch++;}
-    public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;actor.execute(gate::reset);return true;}
-    public void nextAttempt(){actor.execute(()->{gate.reset();lastGuidance=0;showResult(viewEpoch,"已开始新一轮，请正对镜头保持稳定","",false);});}
+    public boolean startCamera(){if(!ready())return false;scanning=true;viewEpoch++;algorithms.offer(gate::reset);return true;}
+    public void nextAttempt(){algorithms.offer(()->{gate.reset();lastGuidance=0;showResult(viewEpoch,"已开始新一轮，请正对镜头保持稳定","",false);});}
     private void connect() throws Exception {client=new PlatformClient(session.getString("origin"));client.token(session.optString("accessToken"));}
     public synchronized void login(String origin,String fingerprint,String username,String password,Done done){
         if(signingIn){complete(done,"上一笔登录和授权恢复仍在处理中，请等待当前结果");return;}
@@ -151,7 +154,7 @@ public final class TerminalRuntime {
         PlatformClient next=job.client;JSONObject info=job.info;String origin=job.origin,fingerprint=job.fingerprint,username=job.username;
         try{
             if(!authorized)throw new IllegalStateException("算法授权尚未通过校验，无法开始核验会话");
-            if(!store.libraryBelongsTo(origin)){if(engine.ready())engine.reset(store);engine.invalidateLibrary();store.switchLibrary(origin);}
+            if(!store.libraryBelongsTo(origin)){algorithms.call(()->{if(engine.ready())engine.reset(store);engine.invalidateLibrary();return null;});store.switchLibrary(origin);}
             String libraryId=store.libraryId(origin);
             JSONObject binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION).put("libraryId",libraryId));
             if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
@@ -180,16 +183,16 @@ public final class TerminalRuntime {
                 TerminalFaceEngine.Progress progress=(loaded,total,elapsed)->{loadedFaces=loaded;loadTotal=total;loadElapsed=elapsed;long now=SystemClock.elapsedRealtime();if(loaded==0||loaded==total||now-lastLoadNotice>=500){lastLoadNotice=now;emit("正在加载本地特征："+loaded+" / "+total+"，已用时 "+elapsed/1000+" 秒；无需重新下载照片");}};
                 if(!engine.loading()){
                     emit("正在初始化领路人脸算法，请稍候");presence.sdk("AUTHORIZED","MODEL_LOADING",null);
-                    if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");
-                    engine.init(context,store,progress);
+                    algorithms.call(()->{if(!ConfigUtils.isConfigExit(context)||!ConfigUtils.initConfig(context))throw new IllegalStateException("算法配置读取失败");return null;});
+                    algorithms.call(()->{engine.init(context,store,progress);return null;});
                 }
-                engine.restoreBatch(store,progress);
+                algorithms.call(()->{engine.restoreBatch(store,progress);return null;});
                 if(!engine.ready())return false;
-                engine.applySettings();presence.sdk("AUTHORIZED","READY",null);
+                algorithms.call(()->{engine.applySettings();return null;});presence.sdk("AUTHORIZED","READY",null);
             }catch(Exception|LinkageError e){modelFailed=true;presence.sdk("AUTHORIZED","ERROR",null);throw new IllegalStateException("算法加载失败："+safe(e));}
         }
         if(!session.optBoolean("resetDone")){
-            if(!"SHARED".equals(session.optString("libraryMode")))engine.reset(store);
+            if(!"SHARED".equals(session.optString("libraryMode")))algorithms.call(()->{engine.reset(store);return null;});
             JSONObject ack=client.request("/api/terminal/recovery/reset/ack",TerminalProtocol.ref(session));
             if(!ack.optBoolean("acknowledged"))throw new IllegalStateException("本地人员库就绪尚未获平台确认");
             store.resetDone(session.getString("sessionId"));session=store.active();
@@ -214,15 +217,18 @@ public final class TerminalRuntime {
                 String op=task.getString("operation");long user=task.getLong("userId");
                 if("UPSERT".equals(op)){
                     String hash=task.getString("targetHash");
-                    if(!engine.reuse(store,user,hash))engine.upsert(store,user,hash,client.photo(task.getString("photoUrl")));
+                    if(!algorithms.call(()->engine.reuse(store,user,hash))){
+                        byte[] photo=client.photo(task.getString("photoUrl"));
+                        algorithms.call(()->{engine.upsert(store,user,hash,photo);return null;});
+                    }
                 }
-                else if("DELETE".equals(op))engine.delete(store,user);
+                else if("DELETE".equals(op))algorithms.call(()->{engine.delete(store,user);return null;});
                 else if(!"DISCARD".equals(op))throw new IllegalStateException("未知人员同步任务");
                 ack.put("applied",true);
             }catch(TerminalFaceEngine.PhotoRejectedException e){
                 // Remove any previous template before recording a rejected photo.
                 // A rejection is a completed failure receipt, never a successful face grant.
-                engine.delete(store,task.getLong("userId"));
+                algorithms.call(()->{engine.delete(store,task.getLong("userId"));return null;});
                 String person=task.optString("personName","待核对人员");
                 lastPhotoIssue=person+"："+safe(e);
                 ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
@@ -363,21 +369,31 @@ public final class TerminalRuntime {
     public void frame(byte[] bytes,int width,int height,int rotation){
         if(!scanning||!authorized||!engine.ready()||!frameQueued.compareAndSet(false,true))return;
         final long epoch=viewEpoch;byte[] copy=bytes.clone();
-        actor.execute(()->{try{
-            if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.getString("state")))return;
-            TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);long now=SystemClock.elapsedRealtime();
-            if(!scanning||epoch!=viewEpoch)return; // Ignore a native result that finished after pause/page change.
-            if(now-lastDiagnostics>=800){
-                lastDiagnostics=now;String info=engine.diagnostics()+(match.failure.startsWith("GUIDE_")?" · "+guidance(match.failure):"");
-                main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(info);});
-            }
-            if(!match.present){gate.absent(now);return;}
-            if(match.failure.startsWith("GUIDE_")){
-                boolean waiting=gate.observing();
-                if(waiting&&now-lastGuidance>800){lastGuidance=now;String guide=guidance(match.failure);main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(guide);});}
-                return;
-            }
-            if(!gate.decision(match.user,match.failure,now))return;
+        if(!algorithms.offer(()->{
+            boolean handedOff=false;
+            try{
+                if(!scanning||settingsOpen||epoch!=viewEpoch||!engine.ready())return;
+                TerminalFaceEngine.Match match=engine.identify(store,copy,width,height,rotation);
+                long now=SystemClock.elapsedRealtime();
+                if(!scanning||epoch!=viewEpoch)return;
+                if(now-lastDiagnostics>=800){
+                    lastDiagnostics=now;String info=engine.diagnostics()+(match.failure.startsWith("GUIDE_")?" · "+guidance(match.failure):"");
+                    main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.diagnostics(info);});
+                }
+                if(!match.present){gate.absent(now);return;}
+                if(match.failure.startsWith("GUIDE_"))return;
+                if(!gate.decision(match.user,match.failure,now))return;
+                // At most one decision waits for the actor. No SDK thread ever waits for network.
+                actor.execute(()->acceptMatch(epoch,now,match));handedOff=true;
+            }catch(Exception|LinkageError e){
+                actor.execute(()->{if(epoch==viewEpoch){ready=false;failure(e);}});
+            }finally{java.util.Arrays.fill(copy,(byte)0);if(!handedOff)frameQueued.set(false);}
+        }))frameQueued.set(false);
+    }
+    private void acceptMatch(long epoch,long matchedAt,TerminalFaceEngine.Match match){
+        try{
+            if(!scanning||epoch!=viewEpoch||session==null||!"ACTIVE".equals(session.optString("state")))return;
+            if(SystemClock.elapsedRealtime()-matchedAt>1500){algorithms.offer(gate::reset);return;}
             boolean online=ready()&&match.failure.isEmpty();
             String failure=!ready()?"NETWORK_UNAVAILABLE":match.failure.isEmpty()?"PLATFORM_TIMEOUT":match.failure;
             JSONObject event=store.event(match.user,failure),result=null;pendingEvents=store.pendingCount(session.getString("sessionId"));boolean saved=false;
@@ -395,7 +411,7 @@ public final class TerminalRuntime {
                 emit("记录等待补传或确认："+safe(e));
             }
         }catch(Exception|LinkageError e){ready=false;localFeedback(epoch,"sdk","设备尚未就绪，请联系工作人员");failure(e);}
-        finally{frameQueued.set(false);}});
+        finally{frameQueued.set(false);}
     }
     private static String guidance(String code){
         switch(code){

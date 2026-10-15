@@ -85,4 +85,42 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
   try(android.database.Cursor rows=store.faceBatch(last,128)){assertFalse(rows.moveToNext());}
   assertEquals(2L,store.faces());
  }
+
+ public void testLegacyPlaintextMigrationPreservesSessionEventsAndFeatures() throws Exception {
+  store.close();context.deleteDatabase(name);
+  android.database.sqlite.SQLiteDatabase db=context.openOrCreateDatabase(name,0,null);
+  db.execSQL("CREATE TABLE sessions(id TEXT PRIMARY KEY,snapshot TEXT NOT NULL,state TEXT NOT NULL,last_sequence INTEGER NOT NULL DEFAULT 0,reset_done INTEGER NOT NULL DEFAULT 0,active_slot INTEGER UNIQUE DEFAULT 1)");
+  db.execSQL("CREATE TABLE events(session_id TEXT NOT NULL REFERENCES sessions(id),sequence INTEGER NOT NULL,event_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,response TEXT,confirmed_at INTEGER,created_at INTEGER NOT NULL,PRIMARY KEY(session_id,sequence))");
+  db.execSQL("CREATE TABLE faces(local_id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL UNIQUE,target_hash TEXT NOT NULL,feature BLOB NOT NULL)");
+  db.execSQL("CREATE TABLE metadata(name TEXT PRIMARY KEY,value TEXT NOT NULL)");
+  String id=repeat("a",48);JSONObject snapshot=session(id).put("accessToken","legacy-sensitive-token");
+  JSONObject event=TerminalProtocol.ref(snapshot).put("sequence",1).put("eventId","test-legacy-event").put("userId",7).put("failure","NETWORK_UNAVAILABLE");
+  db.execSQL("INSERT INTO sessions(id,snapshot,state,last_sequence) VALUES(?,?,?,1)",new Object[]{id,snapshot.toString(),"ACTIVE"});
+  db.execSQL("INSERT INTO events(session_id,sequence,event_id,payload,created_at) VALUES(?,1,?,?,?)",new Object[]{id,"test-legacy-event",event.toString(),System.currentTimeMillis()});
+  byte[] feature=new byte[512];java.util.Arrays.fill(feature,(byte)42);
+  db.execSQL("INSERT INTO faces(user_id,target_hash,feature) VALUES(7,'hash',?)",new Object[]{feature});
+  db.execSQL("INSERT INTO metadata(name,value) VALUES('library_id','legacy-library')");
+  db.setVersion(1);db.close();store=new TerminalStore(context,name);
+  assertEquals("legacy-sensitive-token",store.active().getString("accessToken"));
+  assertEquals(event.toString(),store.pending(id).get(0).toString());assertEquals("legacy-library",store.metadata("library_id",""));
+  assertTrue(java.util.Arrays.equals(feature,store.faceFeature(7,"hash")));
+  try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT snapshot FROM sessions",null)){assertTrue(c.moveToFirst());assertTrue(c.getString(0).startsWith("enc1:"));assertFalse(c.getString(0).contains("legacy-sensitive-token"));}
+  try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT feature FROM faces",null)){assertTrue(c.moveToFirst());assertFalse(java.util.Arrays.equals(feature,c.getBlob(0)));}
+  store.close();store=new TerminalStore(context,name);assertEquals(1L,store.pendingCount(id));assertEquals("legacy-sensitive-token",store.active().getString("accessToken"));
+  store.receipt(event,receipt(event));assertEquals(1L,store.dashboard(id).getLong("passed"));
+ }
+ public void testFeatureCipherRejectsWrongOwnerAndTampering() throws Exception {
+  store.saveFace(1,"hash",new byte[512]);store.saveFace(2,"hash",new byte[512]);
+  store.getWritableDatabase().execSQL("UPDATE faces SET feature=(SELECT feature FROM faces WHERE user_id=1) WHERE user_id=2");
+  try{store.faceFeature(2,"hash");fail("accepted another person's encrypted template");}catch(IllegalStateException expected){assertTrue(expected.getMessage().contains("解密校验失败"));}
+ }
+ public void testCompletedMigrationCheckpointsDoNotDoubleEncrypt() throws Exception {
+  store.saveFace(1,"hash",new byte[512]);
+  android.database.sqlite.SQLiteDatabase db=store.getWritableDatabase();
+  db.execSQL("UPDATE crypto_state SET value=1 WHERE name='faces'");
+  db.execSQL("DELETE FROM crypto_state WHERE name='complete'");
+  db.execSQL("INSERT INTO faces(user_id,target_hash,feature) VALUES(2,'hash',?)",new Object[]{new byte[512]});
+  store.close();store=new TerminalStore(context,name);
+  assertEquals(512,store.faceFeature(1,"hash").length);assertEquals(512,store.faceFeature(2,"hash").length);
+ }
 }

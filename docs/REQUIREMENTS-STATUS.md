@@ -374,3 +374,18 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 验证：真实Android/SDK类库维护源码编译、11组Java回归、相机/授权模拟通过；未构建完整正式APK，未执行真机20万人脸测试。
 - 网络与SDK队列分离、Keystore静态加密、原生依赖审计尚未完成；不能把降低网络次数表述为完成AUD-13。AUD-14/AUD-19由用户明确暂缓。
 - 自动化入口与压力测试步骤见配套平台docs/testing/LOCAL-AUTOMATION.md；尚未确认用户已部署测试程序的准确名称及配置，未宣称已连接。
+
+
+## 2026-10-15：AUD-07/08/13 安全与执行队列改造（0.7.9-security）
+
+- 用户确认：0.7.8 正式 APK 已构建、导出并完成真机安装；这是用户反馈，不代表本环境执行过真机核验或 20 万人脸测试。
+- 本轮范围：敏感本机存储加密、管理后台 Cookie 会话、算法与网络队列分离。AUD-14 与 AUD-19 继续暂缓，未改移动后台宽度和口令强度政策。
+- AUD-07：新增 TerminalStorageCrypto/TerminalStorageEnvelope。Android 23+ 使用 Keystore AES-256-GCM；21/22 使用 Keystore RSA 封装安装级 AES 密钥，后续系统升级仍保留原封装路径。会话快照、事件请求/回执、metadata、人员特征加密；通信凭据从旧 preferences 迁入加密 metadata。特征 AAD 绑定人员编号和目标哈希。数据库升级为 v2，128 行事务批次与检查点支持中断续迁，迁移后 secure_delete、checkpoint、VACUUM 清理 SQLite 空闲页/日志；不保证闪存底层历史擦除。密钥丢失或解密失败停止读取、不自动换钥/清库。结构化编号、时间和结果分类仍明文，非全库文件加密；厂商 SDK 自有授权缓存不在本次加密范围。
+- AUD-08：管理后台登录仅通过正式 HTTPS 管理站点来源和自定义请求头；返回不可用于认证的 sessionId，JWT 只在 Secure/HttpOnly/SameSite=Strict/__Host Cookie 中。Cookie 不设 Domain。后台 XMLHttpRequest 和流式导出启用 credentials；检查精确 Origin/Referer 与自定义头，核验端接口拒绝 Cookie 登录。X-YKT-Session 绑定页面账号，拒绝多标签页账号切换后旧页面操作；前端丢弃切换前延迟响应。旧 localStorage 令牌在会话恢复时移除，登录失效回登录页，退出须平台确认。APP 保持专用 Bearer 登录协议。旧版既有 Bearer 会话仍按原 8 小时有效期自然到期，未批量踢出现场设备。正式后台来源当前为 https://yktadmin.qiliai.com，自定义域名/本地 HTTP 开发须先调整明确白名单与 HTTPS 环境。
+- AUD-13：TerminalAlgorithmQueue 单线程、有界队列（4），所有 FaceEngine 变更和识别仅在此运行；原 actor 保留会话/网络/记录顺序。下载照片在 actor，算法队列不等待网络或 actor；仅允许一个待处理帧/决策，避免积压，超过 1.5 秒的等待决策丢弃重识别；暂停/账号切换按 epoch 丢弃旧结果。算法同步调用超过 240 秒停止后续调用并提示重启，不并行重建原生 SDK。网络请求仍按原协议串行，未改成无限并发。
+- 验证：后端全套主测试 294 通过、356 跳过、0 失败，随后新增 Cookie 路由边界回归单独执行；后台原 142 项加会话测试 6 项；Android 生产 Java 与仪器测试源码编译通过（官方 Android 29、现有 SDK/vendor 编译类）。主机加密篡改/错钥/错人/截断测试及队列串行/网络阻塞/容量/异常测试通过。相机和授权持久化 fake Android 回归通过。以本次交付记录的最终运行结果为准。
+- 待验收：本版本完整 APK 打包、Android Keystore 与 SQLite v1 升级仪器测试、正式 HTTPS 浏览器 Cookie 联调、真机相机/核验/切换回归。用户已有 0.7.8 安装成功不等于 0.7.9 已验收。
+- 升级：平台先更新，再覆盖安装 APP；首次打开旧库需要加密迁移，保持应用运行。数据库升级后禁止直接降级旧 APK；不卸载、不清除数据。真机脚本 -VerifyJournal 使用单独测试数据库，不向业务库灌入测试人员。
+- 未关闭：AUD-01 外部备份/密钥轮换和历史治理、AUD-17 完整依赖/SCA 与可复现打包、AUD-21 旧硬件归档；厂商缓存加密、自动加密备份，以及实际数据库/真机 20 万压测、第三方自动化对接仍需后续工作。
+
+- 最终补充验证：13 组主机 Java 测试均通过；后台 147 项全套测试通过后，新增第 6 项会话延迟响应测试，最终会话/下载 19 项与最后会话 6 项回归均通过；新增 Cookie 路由边界、middleware/security 测试通过。Android 29 官方可选 test runner/base JAR 编译仪器源码通过；未执行 Android 仪器测试。

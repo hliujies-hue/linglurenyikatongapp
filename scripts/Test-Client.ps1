@@ -26,7 +26,11 @@ try {
  $restoreTest = Join-Path $root 'tests\java\TerminalIndexRestoreTest.java'
  $activation = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalActivationGate.java'
  $activationTest = Join-Path $root 'tests\java\TerminalActivationGateTest.java'
- & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest $restore $restoreTest $activation $activationTest
+ $envelope = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalStorageEnvelope.java'
+ $envelopeTest = Join-Path $root 'tests\java\TerminalStorageEnvelopeTest.java'
+ $algorithmQueue = Join-Path $root 'overlays\app\src\main\java\com\lingluren\yikatong\terminal\TerminalAlgorithmQueue.java'
+ $algorithmQueueTest = Join-Path $root 'tests\java\TerminalAlgorithmQueueTest.java'
+ & javac -encoding UTF-8 -d $out $policy $test $gate $gateTest $drain $drainTest $sdk $sdkTest $schedule $scheduleTest $decision $decisionTest $resultType $resultTest $ledger $ledgerTest $backup $messages $backupTest $restore $restoreTest $activation $activationTest $envelope $envelopeTest $algorithmQueue $algorithmQueueTest
  if($LASTEXITCODE -ne 0) { throw 'Client security test compilation failed' }
  & java -cp $out TerminalEndpointPolicyTest
  if($LASTEXITCODE -ne 0) { throw 'Client security tests failed' }
@@ -50,5 +54,9 @@ try {
  if($LASTEXITCODE -ne 0) { throw 'Batched feature restore tests failed' }
  & java -cp $out com.lingluren.yikatong.terminal.TerminalActivationGateTest
  if($LASTEXITCODE -ne 0) { throw 'Activation single-flight regression tests failed' }
+ & java -cp $out com.lingluren.yikatong.terminal.TerminalStorageEnvelopeTest
+ if($LASTEXITCODE -ne 0) { throw '本机加密防篡改测试失败' }
+ & java -cp $out com.lingluren.yikatong.terminal.TerminalAlgorithmQueueTest
+ if($LASTEXITCODE -ne 0) { throw '算法队列隔离或容量测试失败' }
 } finally { Remove-Item -LiteralPath $out -Recurse -Force }
 

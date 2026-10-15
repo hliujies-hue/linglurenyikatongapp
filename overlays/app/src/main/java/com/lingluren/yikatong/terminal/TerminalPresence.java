@@ -44,11 +44,13 @@ final class TerminalPresence {
         if(origin.isEmpty()||fingerprint.isEmpty())return;
         checking=true;lastAttempt=System.currentTimeMillis();
         try {
-            String key="credential:"+origin,token=prefs.getString(key,"");
+            String key="credential:"+origin,token=store.metadata(key,"");
+            if(token.isEmpty()){token=prefs.getString(key,"");if(!token.isEmpty())store.metadata(key,token,true);}
+            if(prefs.contains(key)&&!prefs.edit().remove(key).commit())throw new IllegalStateException("旧版设备通信凭据清理失败，凭据已加密保存在本机记录库，请重试");
             if(token.isEmpty()){
                 byte[] random=new byte[32];new SecureRandom().nextBytes(random);StringBuilder value=new StringBuilder();
                 for(byte b:random)value.append(String.format(java.util.Locale.ROOT,"%02x",b&255));token=value.toString();
-                if(!prefs.edit().putString(key,token).commit())throw new IllegalStateException("设备通信凭据保存失败");
+                store.metadata(key,token,true);
             }
             JSONObject body=new JSONObject().put("fingerprint",fingerprint).put("connectionToken",token).put("appVersion",TerminalProtocol.VERSION)
                 .put("sdkVersion","8.5").put("sdkStatus",sdkStatus).put("authorizationStatus",authorization).put("license",license);

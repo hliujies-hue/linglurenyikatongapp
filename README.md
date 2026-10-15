@@ -6,7 +6,7 @@
 
 0.7.7 新增[算法授权保存与卸载重装恢复](docs/ALGORITHM-LICENSE-RECOVERY.md)：同签名更新自动校验，误卸载后登录恢复已备份授权码。先更新平台再更新 APP。
 
-基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.8-audit`（127）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
+基于已提供的 FaceSDKAndroid(2).zip 完整 Demo 二次开发，包名 `com.lingluren.yikatong.terminal`，版本 `0.7.9-security`（127）。实际 APP 仓库为 `hliujies-hue/linglurenyikatongapp`。
 
 `demo-local` 是原版，`demo-work` 是本地工作副本；`overlays` 保存维护代码。已有工作副本直接拉取并执行 `scripts/Build-Demo.ps1`，不要重新导入或清除签名、授权、应用数据。构建时自动应用覆盖文件。
 
