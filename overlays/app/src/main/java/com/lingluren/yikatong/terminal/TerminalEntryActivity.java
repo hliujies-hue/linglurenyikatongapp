@@ -182,6 +182,15 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(id==null || id.length()<8) throw new IllegalStateException("设备指纹读取失败，请联系平台人员");
         return getPackageName()+":"+id;
     }
+    // Same UTF-8 SHA256 as the platform fingerprintHash; never read or activate the SDK.
+    private String deviceIdentitySummary() {
+        try {
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(fingerprint().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder result=new StringBuilder();
+            for(int i=0;i<8;i++)result.append(String.format(java.util.Locale.ROOT,"%02x",digest[i]&255));
+            return result.toString();
+        } catch(Exception e) { return "读取失败，请检查系统设备标识"; }
+    }
     private boolean destroyed, foreground;
     private boolean baiduSettingsOpen;
 
@@ -584,7 +593,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             if(error!=null){report.setText(error);copy[0]="";copyButton.setEnabled(false);exportButton.setEnabled(false);}else{
                 JSONObject q=data.optJSONObject("sync");long age=data.optLong("heartbeatAgeSeconds",-1);
                 String info="APP："+data.optString("appVersion")+"\nAndroid："+Build.VERSION.RELEASE+"\n平台："+savedOrigin()
-                    +"\n算法设备指纹："+(license.fingerprintReady()?"已取得（不导出指纹值）":"未取得")+"\n激活阶段："+TerminalActivationGate.phaseText(license.state().phase)+"\n最近激活尝试："+deviceTime(license.lastAttempt())+"\n激活错误："+(license.state().error==0?"无":TerminalActivationGate.describe(license.state().error))
+                    +"\n本机标识摘要："+deviceIdentitySummary()+"\n标识用途：核对平台档案，不代表算法授权状态"+"\n算法设备指纹："+(license.fingerprintReady()?"已取得（不导出指纹值）":"未取得")+"\n激活阶段："+TerminalActivationGate.phaseText(license.state().phase)+"\n最近激活尝试："+deviceTime(license.lastAttempt())+"\n激活错误："+(license.state().error==0?"无":TerminalActivationGate.describe(license.state().error))
                     +"\n设备名称："+data.optString("deviceName")+"\nAPP配置版本："+data.optLong("appConfigRevision")+"\nAPP限制原因："+data.optString("appBlockedReason","无")+"\n设备授权："+(data.optBoolean("authorized")?"已完成":"未完成")+"\n账号会话："+(data.optBoolean("hasSession")?"已登录":"未登录")
                     +"\n领路人脸算法："+(data.optBoolean("modelFailed")?"加载失败":data.optBoolean("sdkReady")?"就绪":data.optBoolean("loading")?"加载中":"等待初始化")
                     +"\n当前可核验："+(data.optBoolean("ready")?"是":"否")+"\n相机权限："+(cameraAllowed()?"已开启":"未开启")
