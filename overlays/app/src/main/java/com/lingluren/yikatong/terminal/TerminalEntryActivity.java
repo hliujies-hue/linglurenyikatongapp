@@ -136,9 +136,17 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             if(slot.attempts==1)Toast.makeText(this,"品牌"+(slot.icon?"图标":"背景")+"未更新："+detail+"。保留原显示，5秒后重试。",Toast.LENGTH_LONG).show();
         }else Toast.makeText(this,"品牌"+(slot.icon?"图标":"背景")+"连续4次加载失败："+detail+"。网络恢复后点击顶部品牌区域重试。",Toast.LENGTH_LONG).show();
     }
-    private void showAppUpdate(){JSONObject c=runtime.appConfig();String latest=c.optString("latestVersion"),url=c.optString("updateUrl");
-        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(this).setTitle("APP版本与更新").setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n最低允许版本："+c.optString("minimumVersion","不限制")+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n安装包SHA256："+c.optString("updateSha256")+"\n下载由浏览器完成，本页未自动校验下载文件。请由管理员核对发布摘要后覆盖安装，保留本机数据。").setNegativeButton("关闭",null);
-        if(url.startsWith("https://"))dialog.setPositiveButton("浏览器下载APK",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"未找到浏览器，请由管理员下载安装包",Toast.LENGTH_LONG).show();}});dialog.show();
+    private TerminalAppUpdater appUpdater;
+    private void showAppUpdate(){
+        JSONObject c=runtime.appConfig();String latest=c.optString("latestVersion");
+        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(this).setTitle("APP版本与更新")
+            .setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n更新将在应用内下载并校验，随后由系统确认覆盖安装。")
+            .setNegativeButton("关闭",null);
+        if(!c.optString("updateUrl").isEmpty())dialog.setPositiveButton("下载并更新",(d,w)->{
+            if(appUpdater==null)appUpdater=new TerminalAppUpdater(this);
+            appUpdater.start(c);
+        });
+        dialog.show();
     }
     private void checkAppUpdate(){runtime.checkAppConfig(error->{if(destroyed)return;if(error!=null){new android.app.AlertDialog.Builder(this).setTitle("检查更新失败").setMessage(error).setPositiveButton("知道了",null).show();return;}applyAppConfig();showAppUpdate();});}
 
@@ -265,7 +273,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void round(android.view.View v,int radius){v.setClipToOutline(true);v.setOutlineProvider(new android.view.ViewOutlineProvider(){public void getOutline(android.view.View view,android.graphics.Outline out){out.setRoundRect(0,0,view.getWidth(),view.getHeight(),dp(radius));}});}
     private LinearLayout iconLabel(String icon,String title,int color,int size){LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER);row.addView(new TerminalIconView(this,icon,color),new LinearLayout.LayoutParams(dp(size),dp(size)));TextView label=text(title,13,INK);label.setPadding(dp(5),0,0,0);row.addView(label);return row;}
-    private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size<=12?12:size==13?14:size);t.setTextColor(color);t.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL));t.setIncludeFontPadding(false);t.setLineSpacing(dp(4),1);if(Build.VERSION.SDK_INT>=23){t.setBreakStrategy(0);t.setHyphenationFrequency(0);}return t;}
+    private TextView text(String value,int size,int color){TextView t=new TextView(this);t.setText(value);t.setTextSize(size<=12?12:size==13?14:size);t.setTextColor(color);t.setTypeface(android.graphics.Typeface.create("sans-serif",android.graphics.Typeface.NORMAL));t.setIncludeFontPadding(false);t.setLineSpacing(dp(4),1);if(Build.VERSION.SDK_INT>=23){t.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE);t.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);}return t;}
     private LinearLayout card(LinearLayout parent){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(20),dp(20),dp(20));box.setBackground(background(Color.WHITE,0xffedf0f3));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(16);parent.addView(box,lp);return box;}
     private void label(LinearLayout box,String value){TextView t=text(value,18,INK);t.setTypeface(null,android.graphics.Typeface.BOLD);t.setPadding(0,0,0,dp(12));box.addView(t);}
     private Button action(LinearLayout box,String value,Runnable click,boolean primary){Button button=new Button(this);button.setText(value);styleButton(button);if(!primary){button.setTextColor(BLUE);button.setBackground(background(Color.WHITE,0xffc6dcff));}box.addView(button);button.setOnClickListener(v->click.run());return button;}
@@ -348,7 +356,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);field.setMinHeight(dp(52));params.bottomMargin=dp(14);field.setLayoutParams(params);
     }
     private void styleButton(Button button) {
-        button.setTextColor(Color.WHITE);button.setTextSize(16);button.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));button.setAllCaps(false);button.setPadding(dp(12),dp(12),dp(12),dp(12));button.setMinWidth(0);button.setMinimumWidth(0);button.setIncludeFontPadding(false);
+        button.setTextColor(Color.WHITE);button.setTextSize(16);button.setTypeface(android.graphics.Typeface.create("sans-serif-medium",android.graphics.Typeface.NORMAL));button.setAllCaps(false);button.setPadding(dp(12),dp(12),dp(12),dp(12));button.setMinWidth(0);button.setMinimumWidth(0);button.setIncludeFontPadding(false);
         android.graphics.drawable.StateListDrawable states=new android.graphics.drawable.StateListDrawable();
         states.addState(new int[]{-android.R.attr.state_enabled},background(Color.rgb(166,187,215),0));
         states.addState(new int[]{},background(Color.rgb(25,117,255),0));
@@ -812,13 +820,13 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         pair(root,"返回首页",this::showAccount,"继续核验",()->{if(runtime.ready())showScan();else showSyncPage();});
     }
     @Override public void onBackPressed(){if(scanPage||resultPage||syncPage||maintenancePage){showAccount();return;}if(runtime.hasSession()){showMaintenance();return;}super.onBackPressed();}
-    @Override protected void onResume() { super.onResume();foreground=true;if(license!=null&&license.state().authorized()&&(activationPage||(loginPage&&loginCompleted&&runtime.hasSession()&&!runtime.signingIn()))){authorized=true;if(runtime.hasSession())showAccount();else showLogin();}updateVoiceStatus();if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics.run();}if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics.run();}if(accountPage){homeStatus(lastState);if(startButton!=null)startButton.setText(runtime.ready()?"开始核验":"查看同步进度");if(camera!=null&&cameraAllowed())camera.preview();} }
+    @Override protected void onResume() { super.onResume();if(appUpdater!=null)appUpdater.resume();foreground=true;if(license!=null&&license.state().authorized()&&(activationPage||(loginPage&&loginCompleted&&runtime.hasSession()&&!runtime.signingIn()))){authorized=true;if(runtime.hasSession())showAccount();else showLogin();}updateVoiceStatus();if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics.run();}if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics.run();}if(accountPage){homeStatus(lastState);if(startButton!=null)startButton.setText(runtime.ready()?"开始核验":"查看同步进度");if(camera!=null&&cameraAllowed())camera.preview();} }
     @Override protected void onPause() {
         foreground=false;stopSpeech();if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);
         if(camera!=null)camera.stop();runtime.pauseCamera();if(scanPage){setScanState(ScanState.PAUSED);if(resultView!=null)resultView.setText("已暂停核验，返回后点击开始核验");}else if(startButton!=null)startButton.setText("开始核验");super.onPause();
     }
     @Override protected void onDestroy() {
-        destroyed=true;if(scanStartupTimeout!=null)main.removeCallbacks(scanStartupTimeout);resetBrandImages();if(brandImages!=null)brandImages.close();if(speechTimeout!=null)main.removeCallbacks(speechTimeout);stopSpeech();if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);adminWorker.shutdownNow();pageVersion++;if(license!=null)license.detach(this);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
+        destroyed=true;if(appUpdater!=null)appUpdater.close();if(scanStartupTimeout!=null)main.removeCallbacks(scanStartupTimeout);resetBrandImages();if(brandImages!=null)brandImages.close();if(speechTimeout!=null)main.removeCallbacks(speechTimeout);stopSpeech();if(refreshDiagnostics!=null)main.removeCallbacks(refreshDiagnostics);if(refreshHomeStatistics!=null)main.removeCallbacks(refreshHomeStatistics);adminWorker.shutdownNow();pageVersion++;if(license!=null)license.detach(this);runtime.detach(this);if(camera!=null)camera.stop();if(speech!=null){speech.stop();speech.shutdown();}super.onDestroy();
     }
 }
 

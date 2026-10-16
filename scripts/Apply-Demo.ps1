@@ -126,6 +126,30 @@ if($null -eq $entry) {
  [void]$filter.AppendChild($action); [void]$filter.AppendChild($category); [void]$entry.AppendChild($filter); [void]$app.AppendChild($entry)
 }
 [void]$entry.SetAttribute('exported',$android,'true')
+# Self-update only: private APK cache exposed through a read-granted FileProvider.
+$installPermission = $false
+foreach($permission in @($xml.manifest.SelectNodes('uses-permission'))) {
+ if($permission.GetAttribute('name',$android) -eq 'android.permission.REQUEST_INSTALL_PACKAGES') { $installPermission=$true }
+}
+if(-not $installPermission) {
+ $permission=$xml.CreateElement('uses-permission')
+ [void]$permission.SetAttribute('name',$android,'android.permission.REQUEST_INSTALL_PACKAGES')
+ [void]$xml.manifest.InsertBefore($permission,$app)
+}
+$updateProvider=$null
+foreach($provider in @($app.SelectNodes('provider'))) {
+ if($provider.GetAttribute('authorities',$android) -eq 'com.lingluren.yikatong.terminal.updates') { $updateProvider=$provider;break }
+}
+if($null -eq $updateProvider) { $updateProvider=$xml.CreateElement('provider');[void]$app.AppendChild($updateProvider) }
+[void]$updateProvider.SetAttribute('name',$android,'androidx.core.content.FileProvider')
+[void]$updateProvider.SetAttribute('authorities',$android,'com.lingluren.yikatong.terminal.updates')
+[void]$updateProvider.SetAttribute('exported',$android,'false')
+[void]$updateProvider.SetAttribute('grantUriPermissions',$android,'true')
+foreach($metadata in @($updateProvider.SelectNodes('meta-data'))) { [void]$updateProvider.RemoveChild($metadata) }
+$metadata=$xml.CreateElement('meta-data')
+[void]$metadata.SetAttribute('name',$android,'android.support.FILE_PROVIDER_PATHS')
+[void]$metadata.SetAttribute('resource',$android,'@xml/terminal_update_paths')
+[void]$updateProvider.AppendChild($metadata)
 $xml.Save($path)
 Write-Host 'Demo overlay applied: real online activation, guarded terminal entry, private Demo screens.'
 Write-Host 'Session V2: SDK face sync, durable events, receipt confirmation and guarded account exit. Validate on the real phone before operational use.'

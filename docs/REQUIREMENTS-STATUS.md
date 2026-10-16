@@ -454,3 +454,13 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - TerminalEntryActivity底部版权使用平台supportText/supportUrl；HTTPS网址通过系统浏览器打开，留空网址不跳转，空文字隐藏；同步刷新点击行为与辅助说明，打开失败给出提示。默认网址仍https://linglu.ren。
 - 配套版本0.7.14-branding/133，同步Gradle和TerminalProtocol；原签名、包名、SDK授权与本地待同步记录保留。基于3cef3ecb9371a14ba4b5d2c1322f10535f85ddd5，本节与实现同提交。
 - 仅源码审阅，未运行测试、编译、打包或真机安装。首次需覆盖安装新版；之后版权文字和跳转网址可在线配置。手工上传到可用HTTPS下载地址后，在平台保存版本、摘要及更新说明。
+
+
+## APP-20261016-01 应用内更新、桌面名称和构建阻断
+- 需求：本地手工打包、网页上传发布后，终端内下载更新，不再打开浏览器。桌面名称须可在手工打包时明确指定。
+- 实现：TerminalAppUpdater 负责 HTTPS 限次重定向、进度/取消、512MB 上限、SHA256、包名、签名、发布版本及递增 versionCode 检查；私有缓存 FileProvider 仅开放更新目录；用户允许安装权限后调用系统覆盖安装，保留签名、授权和数据。退出 Activity 取消下载；失败可重新下载；不实现后台下载或断点续传。
+- 名称：Export-Apk.ps1 -AppName '年票核验端' 持久化本地 app-branding.json，保留其他品牌字段，构建回执记录实际桌面名称。APP 内标题仍读取平台 appName；Android 桌面名称需覆盖安装新包生效。
+- 修复：TerminalEntryActivity 三处 Lint WrongConstant 改用 Layout/Typeface 命名常量，没有关闭 Lint。
+- 版本：0.7.15-inapp-update / 134。首次升级仍需本地构建并覆盖安装；已安装的新版本以后可应用内下载升级。
+- 验证：已核对用户构建日志、截图并审查下载/权限/生命周期逻辑；当前环境没有完整 Android SDK/Demo，未构建 APK、未执行 Lint 或真机验收。待验证：正常下载、取消/断网/空间不足、错误摘要/签名/版本拒绝、安装权限返回、覆盖安装后的授权和记录保留。
+- 提交依据：本节与上述实现同一提交；未启用自动构建或 GitHub Actions。

@@ -1,8 +1,23 @@
-param([string]$OutputDirectory = '', [switch]$DeferTests)
+param([string]$OutputDirectory = '', [switch]$DeferTests, [string]$AppName = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if(-not (Test-Path -LiteralPath (Join-Path $root 'signing.properties'))) {
  throw 'Restore the existing signing.properties before exporting an update; do not generate a different signing key.'
+}
+# Explicit desktop name persists for subsequent manual builds; preserve icon settings.
+if($PSBoundParameters.ContainsKey('AppName')) {
+ $AppName=$AppName.Trim()
+ if(-not $AppName -or $AppName.Length -gt 30 -or $AppName -match '[\p{Cc}@?]') { throw '应用名称须为1至30字，不能包含控制符、@或?' }
+ if($env:YKT_BUILD_BRANDING) { throw '队列构建不能通过手工参数覆盖品牌快照。' }
+ $brandingPath=Join-Path $root 'app-branding.json'
+ $branding=[PSCustomObject]@{}
+ if(Test-Path -LiteralPath $brandingPath) {
+  $raw=Get-Content -LiteralPath $brandingPath -Raw -Encoding UTF8
+  if(-not [string]::IsNullOrWhiteSpace($raw)) { $branding=$raw | ConvertFrom-Json }
+  if($branding -isnot [PSCustomObject]) { throw 'app-branding.json 必须为 JSON 对象。' }
+ }
+ $branding | Add-Member -NotePropertyName appName -NotePropertyValue $AppName -Force
+ [IO.File]::WriteAllText($brandingPath,($branding | ConvertTo-Json -Depth 20),(New-Object Text.UTF8Encoding($false)))
 }
 # Build-Demo throws on test, Lint, build or APK signature verification failures.
 & (Join-Path $PSScriptRoot 'Build-Demo.ps1') -DeferTests:$DeferTests
@@ -41,6 +56,7 @@ try {
   "Version=$version",
   "VersionCode=$versionCode",
   "PackageName=com.lingluren.yikatong.terminal",
+  "AppName=$(([xml](Get-Content -LiteralPath (Join-Path $root 'demo-work\app\src\main\AndroidManifest.xml') -Raw)).manifest.application.GetAttribute('label','http://schemas.android.com/apk/res/android'))",
   "SHA256=$exportHash",
   "SourceCommit=$revision",
   "WorkingTree=$workingTree",
