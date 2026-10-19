@@ -11,7 +11,7 @@ android {
 //    buildToolsVersion "33.0.1"
     defaultConfig {
         applicationId "com.lingluren.yikatong.terminal"
-        testInstrumentationRunner "android.test.InstrumentationTestRunner"
+        testInstrumentationRunner "com.lingluren.yikatong.terminal.TerminalScaleRunner"
         minSdkVersion 21
         targetSdkVersion 31
         versionCode 136

@@ -481,3 +481,14 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 验证：真实生产索引管理类+模拟原生索引，20万不同512字节合成数据3轮，每轮760010断言通过、0意外失败；Go编译与边界测试、两处Vue SFC解析编译、6项清理边界测试通过。MySQL8.4.10初始化后受环境UNIX套接字限制无法启动，2项事务用例连接阶段失败；SQL压力场景未执行，真机/SDK未测。报告及原始JSON：docs/testing/SCALE-200K-20261019.*。
 - 提交依据：平台基线752cda143d35dc33afc9416cb6529ad4ee467b0f；APP基线7469ada7b263728005885cc3b5dd2920c6263b6e；本节与本批实现一起提交。未在用户服务器部署或清理，未生成正式APK。
 - 待完成：按报告在隔离测试机执行20万MySQL并发；真实手机SDK容量及完整上传/更新闭环验收。不能将主机模拟结果解释为手机性能达标。
+
+
+## NATIVE-SCALE-20261019：真实SDK索引压测入口
+- 用户授权开始真机压测准备；现有Xiaomi/M2011K2C Android14 APP136、摘要e81b5ac40cb148da，已由用户确认6人核验正常。这不是20万库验收。
+- 新增独立androidTest Runner与TerminalNativeScaleTest，Windows scripts/Test-NativeScale.ps1，说明docs/testing/NATIVE-SCALE.md。生产APP版本仍136，未更改业务接口/数据库/日常UI；仅测试Runner配置变更。
+- 实际FaceSearch装载200000条512字节特征、1000次分布抽样同特征回查；报告加载耗时、P50/P95/P99、周期采样PSS/原生堆、阶段、失败及清理结果。授权直接调用厂商初始化，不触发生产Runtime或人员同步，不访问生产Store。
+- 必须真实兼容SDK8.5 LIVE_PHOTO的不同人员特征和manifest；校验长度/哈希/全零/重复字节，来源和不同身份仅提供方声明，不能独立证明。禁止随机特征/复制6人冒充真实库。
+- 显式-AllowPause才运行，要求闲置测试手机待确认0；停止核验，测试后拉报告并尝试删测试特征、重新打开APP。低内存、STOP、30分钟时限在检查点中止；native阻塞/OOM不能保证及时中止，报告未完成不得当通过。
+- 验证：2份Java文件通过JDK JavacTask.parse语法解析，无类型检查；未执行Windows脚本/正式Android编译/SDK/真机。准备入口-PrepareOnly用于用户现有构建环境验证。
+- 阻断：没有20万份真实特征数据集。待实际APK编译、厂商SDK兼容性验证、真机容量报告；SQLite冷启动/不同照片识别率/活体/长期温升/端到端多机验收仍未完成。
+- 依据：APP基线eba58be7dcd63859c862c44941c71071fb3c591d；平台20万SQL证据e11a15fee7c69b6a59c4b26f098d4c09a97151b1。未启用自动构建或计划任务。
