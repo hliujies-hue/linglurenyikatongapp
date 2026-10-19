@@ -43,7 +43,7 @@ if($Serial -notmatch '^[A-Za-z0-9._:-]+$') { throw 'Invalid device serial' }
 $package='com.lingluren.yikatong.terminal'
 $installed=(AdbChecked @('shell','dumpsys','package',$package)) -join "`n"
 if($installed -notmatch 'versionCode=136\b') { throw 'Install the verified versionCode 136 production APK first; no downgrade or data reset is performed' }
-$dest='/sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/native-scale'
+$dest='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test/native-scale'
 $folder=Join-Path ([Environment]::GetFolderPath('Desktop')) ('Yikatong-NativeScale\'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 AdbChecked @('install','-r',$testApk) | Out-Host
@@ -56,6 +56,7 @@ try {
  $output=AdbChecked @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalNativeScaleTest",'-e','nativeScale',"$Count",'-e','datasetMode',$DatasetMode,'-e','datasetSha256',$datasetHash,"$package.test/$package.TerminalScaleRunner")
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding UTF8
  $output | Out-Host
+ if(($output -join "`n") -notmatch 'OK \(1 test\)') { throw "Instrumentation failed; see $folder\instrumentation.txt." }
  AdbChecked @('pull',"$dest/report.json",(Join-Path $folder 'report.json')) | Out-Host
  $report=Get-Content -LiteralPath (Join-Path $folder 'report.json') -Raw | ConvertFrom-Json
  if(($output -join "`n") -notmatch 'OK \(1 test\)' -or $report.status -ne 'PASS' -or $report.nativeCleanupCode -ne 0 -or $report.datasetSha256 -ne $datasetHash -or $report.records -ne $Count -or $report.datasetMode -ne $DatasetMode) { throw "Native test did not pass. Report: $folder" }

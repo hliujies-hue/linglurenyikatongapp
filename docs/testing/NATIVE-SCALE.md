@@ -43,11 +43,20 @@ Dataset替换为实际导出路径：
 检查点遇到STOP、系统lowMemory或可用内存低于384MiB、运行超过30分钟会停止。提取时限不包含开始前全语料哈希扫描；native单次卡住时检查不能及时执行，仍可能OOM。多设备时以下adb命令需加-s指定手机：
 ```powershell
 # 中止提取
-& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/feature-extract/STOP
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test/feature-extract/STOP
 # 中止索引测试
-& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/native-scale/STOP
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test/native-scale/STOP
 ```
 PAUSED/FAIL/RUNNING/缺报告不能算通过。断开USB/关闭Windows进程时finally不保证执行，先拉报告再恢复APP。图片提取目录为续做保留原图/特征（不是后台自动备份），确认电脑导出校验成功后仅清理该测试目录。不要卸载或清空正式APP数据，不要将这些测试文件作为公共下载。
 
 ## 待完成
 实际图片语料、新版APK编译、提取续做/容量真机报告、长时内存温升、不同照片准确率和完整入园流程。目前不能报告20万手机测试通过。
+
+
+## 2026-10-19 Android 14 测试目录修复
+
+- 现场证据：小米 M2011K2C 已上传700张 SFHQ 合成图片，测试在读取目录时失败，未产生特征或容量结果。
+- 修复：instrumentation 使用 targetContext 的 externalFilesDir，脚本上传/导出同步改为正式包 files/ykt-test 下的专用测试目录；独立测试数据库保持不变，不清理正式业务数据。
+- 原测试包目录保留，不自动迁移或删除；首次用原电脑图片目录重新上传，后续断点续跑使用新目录。
+- instrumentation 失败时先报告原始测试失败，不再用缺少 manifest/report 的错误掩盖原因。
+- 本次静态检查不代表真机通过；需重编测试 APK 后验证700张提取。1000至200000条原生索引容量测试仍待执行，700张不足首档。

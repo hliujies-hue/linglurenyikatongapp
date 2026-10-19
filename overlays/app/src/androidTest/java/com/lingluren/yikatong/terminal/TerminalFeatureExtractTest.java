@@ -36,10 +36,10 @@ public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
         int limit=Integer.parseInt(TerminalScaleRunner.arguments.getString("maxPhotos","1000"));
         assertTrue(limit>=1&&limit<=200000);
         Context context=getInstrumentation().getTargetContext();
-        File root=new File(getInstrumentation().getContext().getExternalFilesDir(null),"feature-extract");
+        File root=new File(context.getExternalFilesDir(null),"ykt-test/feature-extract");
         File images=new File(root,"images");
         File[] files=images.listFiles(f->f.isFile()&&f.getName().toLowerCase(Locale.US).matches(".*\\.(jpg|jpeg|png|webp)"));
-        assertNotNull("Flat images directory required",files);
+        assertNotNull("Cannot read images: "+images.getAbsolutePath()+"; exists="+images.exists()+"; readable="+images.canRead(),files);
         assertTrue("Photo count must be 1..200000",files.length>0&&files.length<=200000);
         Arrays.sort(files,Comparator.comparing(File::getName));
         int processCount=Math.min(limit,files.length);

@@ -25,7 +25,7 @@ function Invoke-Adb([string[]]$Arguments) {
 $package='com.lingluren.yikatong.terminal'
 $installed=(Invoke-Adb @('shell','dumpsys','package',$package)) -join "`n"
 if($installed -notmatch 'versionCode=136\b') { throw 'Verified original APP versionCode136 required; no install/downgrade of production app is performed' }
-$remote='/sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/feature-extract'
+$remote='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test/feature-extract'
 $apk=Join-Path $root 'demo-work\app\build\outputs\apk\androidTest\release\app-release-androidTest.apk'
 Invoke-Adb @('install','-r',$apk) | Out-Host
 if(-not $Resume) {
@@ -43,6 +43,7 @@ try {
  $output=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest",'-e','extractPhotos','yes','-e','datasetMode',$DatasetMode,'-e','maxPhotos',"$MaxPhotos","$package.test/$package.TerminalScaleRunner")
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding UTF8
  $output | Out-Host
+ if(($output -join "`n") -notmatch 'OK \(1 test\)') { throw "Instrumentation failed; see $folder\instrumentation.txt." }
  Invoke-Adb @('pull',"$remote/manifest.json",(Join-Path $folder 'manifest.json')) | Out-Host
  Invoke-Adb @('pull',"$remote/features.bin",(Join-Path $folder 'features.bin')) | Out-Host
  $manifest=Get-Content -LiteralPath (Join-Path $folder 'manifest.json') -Raw | ConvertFrom-Json
@@ -54,5 +55,5 @@ try {
  & $adb -s $Serial pull "$remote/rejections.jsonl" (Join-Path $folder 'rejections.jsonl') 2>&1 | Out-Host
  & $adb -s $Serial shell am force-stop $package
  & $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity"
- Write-Host "Output: $folder. Images/checkpoint remain in the TEST app directory for resume. Verify original 6-person business data after restart."
+ Write-Host "Output: $folder. Images/checkpoint remain in the dedicated ykt-test directory for resume. Verify original 6-person business data after restart."
 }
