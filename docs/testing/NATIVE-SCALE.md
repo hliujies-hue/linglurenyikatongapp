@@ -73,3 +73,10 @@ PAUSED/FAIL/RUNNING/缺报告不能算通过。断开USB/关闭Windows进程时f
 新增 `-Count 560`，使用已导出的 SFHQ 合成人脸 SDK 特征，不复制或随机伪造模板。手机加载 560 条，执行 1000 次同模板自查询；报告 testTier=baseline-560。此结果仅作为小样本 SDK 索引基线，不代表 20 万容量或真实人脸准确率。
 
 已知提取结果：700 张处理完成，接受 560、拒绝 140、重复 0；features.bin 长度 286720 字节，SHA256 `68a7d3a47db820957cd612be49514ac8f97fcb72f352d75ad204d9a6037b2cac`。本次手机基线尚待用户执行；未宣称通过。保持 manifest、哈希、重复特征检查和原业务数据隔离。
+
+
+## 2026-10-19 560 条测试崩溃修复（待真机复测）
+
+a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash.txt 中本次调用链为 TerminalNativeScaleTest → FaceSearch.search → nativeSearch → bdface_percent_map，fault address 0xc0，null pointer dereference。此前报告未落盘，不能报告耗时或通过，也没有内存容量不足证据。
+
+测试代码遗漏生产 TerminalFaceEngine 使用的 FaceFeature.initModel。补齐相同识别模型及成功回调等待；保留模型对象；检索前落盘阶段及 featureModelInitialized，异常退出自动导出 crash.txt/logcat.txt。只修改测试工具，不改生产业务或阈值。Java语法检查通过，不等于Android编译或真机验证；560和20万测试均尚未通过。本次日志含其他应用历史记录，不将原始整机日志提交仓库。

@@ -6,6 +6,8 @@ import android.os.Debug;
 import android.os.SystemClock;
 import android.test.InstrumentationTestCase;
 import com.baidu.idl.main.facesdk.FaceSearch;
+import com.baidu.idl.main.facesdk.FaceFeature;
+import com.example.datalibrary.model.GlobalSet;
 import com.baidu.idl.main.facesdk.model.BDFaceSDKCommon;
 import com.baidu.idl.main.facesdk.model.Feature;
 import com.baidu.idl.main.facesdk.utils.PreferencesUtil;
@@ -21,6 +23,7 @@ import org.json.JSONObject;
 public final class TerminalNativeScaleTest extends InstrumentationTestCase {
     private static final int BYTES=512;
     private int count;
+    private FaceFeature featureModel;
     private File directory;
     private final JSONObject report=new JSONObject();
     private long peakPss;
@@ -58,6 +61,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             .put("model",android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE);
         FaceSearch search=null;
         try {
+            checkpoint("VALIDATING",0);
             File manifestFile=new File(directory,"manifest.json");
             assertTrue("Dataset manifest missing or oversized",manifestFile.isFile()&&manifestFile.length()<16384);
             byte[] manifestBytes=new byte[(int)manifestFile.length()];
@@ -91,6 +95,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             assertEquals("Manifest hash mismatch",actual,manifest.getString("sha256"));
             seen.clear();report.put("datasetSha256",actual);
             // Do not use TerminalLicenseManager: it starts the production runtime/synchronizer.
+            checkpoint("LICENSE_INIT",0);
             PreferencesUtil.initPrefs(context);
             String code=context.getSharedPreferences("terminal_license",Context.MODE_PRIVATE).getString("successful_code","");
             assertFalse("Activate the production app first",code.isEmpty());
@@ -100,9 +105,20 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             auth.initLicenseOnLine(context,code,(error,message)->{result[0]=error;licensed.countDown();});
             assertTrue("License initialization timed out",licensed.await(90,TimeUnit.SECONDS));
             assertEquals("License initialization failed",0,result[0]);
+            // Same recognition models as TerminalFaceEngine: search score mapping needs model state.
+            checkpoint("FEATURE_MODEL_INIT",0);
+            featureModel=new FaceFeature();
+            CountDownLatch modelReady=new CountDownLatch(1);int[] modelCode={-1};
+            featureModel.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,
+                GlobalSet.RECOGNIZE_NIR_MODEL,"",(error,message)->{modelCode[0]=error;modelReady.countDown();});
+            assertTrue("Feature model initialization timed out",modelReady.await(45,TimeUnit.SECONDS));
+            assertEquals("Feature model initialization failed",0,modelCode[0]);
+            report.put("featureModelInitialized",true);
+            checkpoint("INDEX_INIT",0);
             search=new FaceSearch();search.setNeedJoinDB(false);search.setMaxUpdateSize(0);
             assertEquals("Native clear failed",0,search.featureClear());
             report.put("nativeSDKTested",true);
+            checkpoint("LOADING",0);
             long start=SystemClock.elapsedRealtime();
             try(DataInputStream input=new DataInputStream(new BufferedInputStream(new FileInputStream(data)))) {
                 for(int i=1;i<=count;i++) {
@@ -111,6 +127,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
                 }
             }
             report.put("loadWallMs",SystemClock.elapsedRealtime()-start);
+            checkpoint("SEARCHING",0);
             long[] durations=new long[1000];int correct=0;
             try(RandomAccessFile input=new RandomAccessFile(data,"r")) {
                 for(int i=0;i<durations.length;i++) {

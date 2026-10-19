@@ -64,6 +64,9 @@ try {
  if(($output -join "`n") -notmatch 'OK \(1 test\)' -or $report.status -ne 'PASS' -or $report.nativeCleanupCode -ne 0 -or $report.datasetSha256 -ne $datasetHash -or $report.records -ne $Count -or $report.datasetMode -ne $DatasetMode) { throw "Native test did not pass. Report: $folder" }
  Write-Host "Native index self-query PASS. NOT real-face accuracy or end-to-end acceptance. Report: $folder"
 } finally {
+ # Capture native crash evidence before restarting production; never clear device logs.
+ & $adb -s $Serial logcat -b crash -d -v threadtime 2>&1 | Set-Content -LiteralPath (Join-Path $folder 'crash.txt') -Encoding UTF8
+ & $adb -s $Serial logcat -d -v threadtime -t 12000 2>&1 | Set-Content -LiteralPath (Join-Path $folder 'logcat.txt') -Encoding UTF8
  # Recover diagnostics even when instrumentation crashes. Keep report on phone.
  & $adb -s $Serial pull "$dest/report.json" (Join-Path $folder 'report.json') 2>&1 | Out-Host
  & $adb -s $Serial shell rm -f "$dest/features.bin" "$dest/manifest.json" 2>&1 | Out-Host
