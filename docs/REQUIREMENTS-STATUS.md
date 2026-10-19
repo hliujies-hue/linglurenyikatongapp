@@ -511,3 +511,9 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 原测试包目录保留，不自动迁移或删除；首次用原电脑图片目录重新上传，后续断点续跑使用新目录。
 - instrumentation 失败时先报告原始测试失败，不再用缺少 manifest/report 的错误掩盖原因。
 - 本次静态检查不代表真机通过；需重编测试 APK 后验证700张提取。1000至200000条原生索引容量测试仍待执行，700张不足首档。
+
+
+### R4：目录修复未通过后的应用内预检
+- 05fed5a现场已编译安装，但目标目录仍 exists=false/readable=false，未提取特征。上一轮修改未完成真机修复。
+- 新增 testPrepareStorage：由目标应用进程创建专用 ykt-test-v2 子目录并实际写读探针；上传后 testValidateImages 逐张打开文件，检查失败即停，不进入SDK。
+- 保留旧目录，不通过放宽全局权限或清理应用数据处理。新路径首次重新上传，后续 Resume 使用新路径。Java语法检查不等于Android编译或真机通过，后两项待现场验证。

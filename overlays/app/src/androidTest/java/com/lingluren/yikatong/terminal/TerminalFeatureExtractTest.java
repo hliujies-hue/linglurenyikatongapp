@@ -13,6 +13,28 @@ import org.json.JSONObject;
 
 /** Offline photo extraction into test-only files. Never opens terminal-v2.db. */
 public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
+
+    public void testPrepareStorage() throws Exception {
+        Context context=getInstrumentation().getTargetContext();
+        File base=context.getExternalFilesDir(null);
+        assertNotNull("External storage unavailable",base);
+        for(String child:new String[]{"ykt-test-v2/feature-extract/images","ykt-test-v2/native-scale"}) {
+            File dir=new File(base,child);
+            assertTrue("Cannot create app-owned directory: "+dir+" uid="+android.os.Process.myUid(),dir.isDirectory()||dir.mkdirs());
+            File probe=new File(dir,".write-probe");
+            try(FileOutputStream out=new FileOutputStream(probe)){out.write(1);}
+            try(FileInputStream in=new FileInputStream(probe)){assertEquals(1,in.read());}
+            assertTrue("Cannot remove storage probe",probe.delete());
+        }
+    }
+    public void testValidateImages() throws Exception {
+        File dir=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),"ykt-test-v2/feature-extract/images");
+        File[] files=dir.listFiles(f->f.isFile()&&f.getName().toLowerCase(Locale.US).matches(".*\\.(jpg|jpeg|png|webp)"));
+        assertNotNull("APP cannot list uploaded images: "+dir,files);
+        assertTrue("No uploaded photos",files.length>0);
+        for(File file:files)try(FileInputStream in=new FileInputStream(file)){assertTrue("Unreadable photo: "+file,in.read()!=-1);}
+    }
+
     private static String hex(byte[] bytes){StringBuilder s=new StringBuilder();for(byte b:bytes)s.append(String.format(Locale.US,"%02x",b&255));return s.toString();}
     private static String sha(File file)throws Exception{
         MessageDigest d=MessageDigest.getInstance("SHA-256");byte[] b=new byte[65536];
@@ -36,7 +58,7 @@ public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
         int limit=Integer.parseInt(TerminalScaleRunner.arguments.getString("maxPhotos","1000"));
         assertTrue(limit>=1&&limit<=200000);
         Context context=getInstrumentation().getTargetContext();
-        File root=new File(context.getExternalFilesDir(null),"ykt-test/feature-extract");
+        File root=new File(context.getExternalFilesDir(null),"ykt-test-v2/feature-extract");
         File images=new File(root,"images");
         File[] files=images.listFiles(f->f.isFile()&&f.getName().toLowerCase(Locale.US).matches(".*\\.(jpg|jpeg|png|webp)"));
         assertNotNull("Cannot read images: "+images.getAbsolutePath()+"; exists="+images.exists()+"; readable="+images.canRead(),files);

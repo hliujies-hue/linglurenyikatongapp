@@ -50,7 +50,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
         count=Integer.parseInt(TerminalScaleRunner.arguments.getString("nativeScale","0"));
         assertTrue("Unsupported tier",count==1000||count==10000||count==50000||count==100000||count==200000);
         Context context=getInstrumentation().getTargetContext();
-        directory=new File(context.getExternalFilesDir(null),"ykt-test/native-scale");
+        directory=new File(context.getExternalFilesDir(null),"ykt-test-v2/native-scale");
         assertTrue(directory.isDirectory());
         File data=new File(directory,"features.bin");
         report.put("status","RUNNING").put("nativeSDKTested",false).put("endToEndTested",false)

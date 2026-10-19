@@ -43,11 +43,13 @@ if($Serial -notmatch '^[A-Za-z0-9._:-]+$') { throw 'Invalid device serial' }
 $package='com.lingluren.yikatong.terminal'
 $installed=(AdbChecked @('shell','dumpsys','package',$package)) -join "`n"
 if($installed -notmatch 'versionCode=136\b') { throw 'Install the verified versionCode 136 production APK first; no downgrade or data reset is performed' }
-$dest='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test/native-scale'
+$dest='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test-v2/native-scale'
 $folder=Join-Path ([Environment]::GetFolderPath('Desktop')) ('Yikatong-NativeScale\'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 AdbChecked @('install','-r',$testApk) | Out-Host
-AdbChecked @('shell','mkdir','-p',$dest) | Out-Null
+$prepare=AdbChecked @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest#testPrepareStorage","$package.test/$package.TerminalScaleRunner")
+$prepare | Out-Host
+if(($prepare -join "`n") -notmatch 'OK \(1 test\)') { throw 'App-owned storage preparation failed' }
 AdbChecked @('shell','rm','-f',"$dest/STOP","$dest/report.json","$dest/report.tmp") | Out-Null
 AdbChecked @('push',$Dataset,"$dest/features.bin") | Out-Host
 AdbChecked @('push',$manifestPath,"$dest/manifest.json") | Out-Host
