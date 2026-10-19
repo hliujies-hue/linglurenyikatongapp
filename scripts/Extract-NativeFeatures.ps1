@@ -1,4 +1,4 @@
-param([string]$SourceFolder='', [string]$Serial='', [ValidateSet('real','synthetic')][string]$DatasetMode='', [ValidateRange(1,200000)][int]$MaxPhotos=1000, [switch]$AllowPause, [switch]$Resume, [switch]$AttestDistinctPeople)
+param([ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')][string]$DatasetId='legacy', [string]$SourceFolder='', [string]$Serial='', [ValidateSet('real','synthetic')][string]$DatasetMode='', [ValidateRange(1,200000)][int]$MaxPhotos=1000, [switch]$AllowPause, [switch]$Resume, [switch]$AttestDistinctPeople)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 if(-not $AllowPause -or -not $DatasetMode) { throw 'Specify -AllowPause and -DatasetMode real/synthetic; use an idle phone with no pending records' }
@@ -26,18 +26,19 @@ $package='com.lingluren.yikatong.terminal'
 $installed=(Invoke-Adb @('shell','dumpsys','package',$package)) -join "`n"
 if($installed -notmatch 'versionCode=136\b') { throw 'Verified original APP versionCode136 required; no install/downgrade of production app is performed' }
 $remote='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test-v2/feature-extract'
+if($DatasetId -ne 'legacy') { $remote="/sdcard/Android/data/$package/files/ykt-test-v2/feature-batches/$DatasetId" }
 $apk=Join-Path $root 'demo-work\app\build\outputs\apk\androidTest\release\app-release-androidTest.apk'
 Invoke-Adb @('install','-r',$apk) | Out-Host
 if(-not $Resume) {
  & $adb -s $Serial shell test -d $remote
  if($LASTEXITCODE -eq 0) { throw 'Extraction directory already exists. Use -Resume; export previous results before manually clearing only the test feature-extract directory.' }
- $prepare=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest#testPrepareStorage","$package.test/$package.TerminalScaleRunner")
+ $prepare=Invoke-Adb @('shell','am','instrument','-w','-r','-e','datasetId',$DatasetId,'-e','class',"$package.TerminalFeatureExtractTest#testPrepareStorage","$package.test/$package.TerminalScaleRunner")
  $prepare | Out-Host
  if(($prepare -join "`n") -notmatch 'OK \(1 test\)') { throw 'App-owned storage preparation failed; no photos uploaded' }
  # Push only selected images; unrelated files are not copied.
  foreach($photo in $photos) { Invoke-Adb @('push',$photo.FullName,"$remote/images/$($photo.Name)") | Out-Null }
 }
-$check=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest#testValidateImages","$package.test/$package.TerminalScaleRunner")
+$check=Invoke-Adb @('shell','am','instrument','-w','-r','-e','datasetId',$DatasetId,'-e','class',"$package.TerminalFeatureExtractTest#testValidateImages","$package.test/$package.TerminalScaleRunner")
 $check | Out-Host
 if(($check -join "`n") -notmatch 'OK \(1 test\)') { throw 'APP cannot read uploaded photos; SDK extraction was not started' }
 Invoke-Adb @('shell','rm','-f',"$remote/STOP") | Out-Null
@@ -45,7 +46,7 @@ $folder=Join-Path ([Environment]::GetFolderPath('Desktop')) ('Yikatong-FeatureDa
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 Invoke-Adb @('shell','am','force-stop',$package) | Out-Null
 try {
- $output=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest#testExtractPhotos",'-e','extractPhotos','yes','-e','datasetMode',$DatasetMode,'-e','maxPhotos',"$MaxPhotos","$package.test/$package.TerminalScaleRunner")
+ $output=Invoke-Adb @('shell','am','instrument','-w','-r','-e','datasetId',$DatasetId,'-e','class',"$package.TerminalFeatureExtractTest#testExtractPhotos",'-e','extractPhotos','yes','-e','datasetMode',$DatasetMode,'-e','maxPhotos',"$MaxPhotos","$package.test/$package.TerminalScaleRunner")
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding UTF8
  $output | Out-Host
  if(($output -join "`n") -notmatch 'OK \(1 test\)') { throw "Instrumentation failed; see $folder\instrumentation.txt." }

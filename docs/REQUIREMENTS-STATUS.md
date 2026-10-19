@@ -537,3 +537,10 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash.txt 中本次调用链为 TerminalNativeScaleTest → FaceSearch.search → nativeSearch → bdface_percent_map，fault address 0xc0，null pointer dereference。此前报告未落盘，不能报告耗时或通过，也没有内存容量不足证据。
 
 测试代码遗漏生产 TerminalFaceEngine 使用的 FaceFeature.initModel。补齐相同识别模型及成功回调等待；保留模型对象；检索前落盘阶段及 featureModelInitialized，异常退出自动导出 crash.txt/logcat.txt。只修改测试工具，不改生产业务或阈值。Java语法检查通过，不等于Android编译或真机验证；560和20万测试均尚未通过。本次日志含其他应用历史记录，不将原始整机日志提交仓库。
+
+
+## 2026-10-19 15:41 真机基线已通过及下一步
+
+用户执行 e7c7cee 并提供 report.json 全文，按原字段归档于 `docs/testing/native-baseline-560-20261019.json`（由用户粘贴内容转存）。560 合成特征加载3ms，1000次同模板查询全部匹配；P50/P95/P99=0.025782/0.033802/0.114635ms，采样PSS峰值116367KiB，原生堆53119528字节，清理返回0。此结果不含相机/活体/提取/平台核验，不可外推20万容量或真人准确率。原有6人业务恢复尚待用户确认。
+
+新增提取参数 `-DatasetId sfhq-batch-002`：新批次使用独立 `ykt-test-v2/feature-batches/<id>`，准备、读取检查、提取及导出使用同一路径；同ID已存在拒绝覆盖，续传必须 `-Resume -DatasetId <原ID>`。默认legacy保留原700张提取目录。禁止往旧批次追加照片。新批次机制Java语法已检查，Windows/手机验证待新图片到位。下一阶段需要至少1000条有效不重复特征；不复用复制模板冒充容量。暂不再要求Kaggle Notebook整库准备。

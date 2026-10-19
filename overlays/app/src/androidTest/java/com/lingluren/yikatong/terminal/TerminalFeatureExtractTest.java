@@ -14,11 +14,17 @@ import org.json.JSONObject;
 /** Offline photo extraction into test-only files. Never opens terminal-v2.db. */
 public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
 
+    private String extractionPath() {
+        String id=TerminalScaleRunner.arguments==null?"":TerminalScaleRunner.arguments.getString("datasetId","");
+        if(id.equals("legacy"))id="";
+        if(!id.isEmpty()&&!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,63}"))throw new IllegalArgumentException("Invalid datasetId");
+        return id.isEmpty()?"ykt-test-v2/feature-extract":"ykt-test-v2/feature-batches/"+id;
+    }
     public void testPrepareStorage() throws Exception {
         Context context=getInstrumentation().getTargetContext();
         File base=context.getExternalFilesDir(null);
         assertNotNull("External storage unavailable",base);
-        for(String child:new String[]{"ykt-test-v2/feature-extract/images","ykt-test-v2/native-scale"}) {
+        for(String child:new String[]{extractionPath()+"/images","ykt-test-v2/native-scale"}) {
             File dir=new File(base,child);
             assertTrue("Cannot create app-owned directory: "+dir+" uid="+android.os.Process.myUid(),dir.isDirectory()||dir.mkdirs());
             File probe=new File(dir,".write-probe");
@@ -28,7 +34,7 @@ public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
         }
     }
     public void testValidateImages() throws Exception {
-        File dir=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),"ykt-test-v2/feature-extract/images");
+        File dir=new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),extractionPath()+"/images");
         File[] files=dir.listFiles(f->f.isFile()&&f.getName().toLowerCase(Locale.US).matches(".*\\.(jpg|jpeg|png|webp)"));
         assertNotNull("APP cannot list uploaded images: "+dir,files);
         assertTrue("No uploaded photos",files.length>0);
@@ -58,7 +64,7 @@ public final class TerminalFeatureExtractTest extends InstrumentationTestCase {
         int limit=Integer.parseInt(TerminalScaleRunner.arguments.getString("maxPhotos","1000"));
         assertTrue(limit>=1&&limit<=200000);
         Context context=getInstrumentation().getTargetContext();
-        File root=new File(context.getExternalFilesDir(null),"ykt-test-v2/feature-extract");
+        File root=new File(context.getExternalFilesDir(null),extractionPath());
         File images=new File(root,"images");
         File[] files=images.listFiles(f->f.isFile()&&f.getName().toLowerCase(Locale.US).matches(".*\\.(jpg|jpeg|png|webp)"));
         assertNotNull("Cannot read images: "+images.getAbsolutePath()+"; exists="+images.exists()+"; readable="+images.canRead(),files);
