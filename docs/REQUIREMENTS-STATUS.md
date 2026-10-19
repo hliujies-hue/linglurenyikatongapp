@@ -523,3 +523,10 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 用户真机 a440953：目录准备与逐图读取通过；主调用执行3项测试，含testExtractPhotos，40.138秒，OK (3 tests)。脚本只接受OK (1 test)，错误阻断了manifest/features导出。
 - 修复：主提取调用明确指定 #testExtractPhotos，保持严格单项成功校验。现场已有结果直接adb pull导出并核对manifest SHA256与count×512长度，无需重新提取。
 - 待取得manifest/checkpoint确认有效、拒绝、重复数量；不能把700张输入写成700条有效特征，也不是容量测试通过。原生1000至200000档仍待有效数据及真机执行。
+
+
+## 2026-10-19 本地 560 条基线测试
+
+新增 `-Count 560`，使用已导出的 SFHQ 合成人脸 SDK 特征，不复制或随机伪造模板。手机加载 560 条，执行 1000 次同模板自查询；报告 testTier=baseline-560。此结果仅作为小样本 SDK 索引基线，不代表 20 万容量或真实人脸准确率。
+
+已知提取结果：700 张处理完成，接受 560、拒绝 140、重复 0；features.bin 长度 286720 字节，SHA256 `68a7d3a47db820957cd612be49514ac8f97fcb72f352d75ad204d9a6037b2cac`。本次手机基线尚待用户执行；未宣称通过。保持 manifest、哈希、重复特征检查和原业务数据隔离。

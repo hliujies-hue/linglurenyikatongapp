@@ -66,3 +66,10 @@ PAUSED/FAIL/RUNNING/缺报告不能算通过。断开USB/关闭Windows进程时f
 - 05fed5a现场已编译安装，但目标目录仍 exists=false/readable=false，未提取特征。上一轮修改未完成真机修复。
 - 新增 testPrepareStorage：由目标应用进程创建专用 ykt-test-v2 子目录并实际写读探针；上传后 testValidateImages 逐张打开文件，检查失败即停，不进入SDK。
 - 保留旧目录，不通过放宽全局权限或清理应用数据处理。新路径首次重新上传，后续 Resume 使用新路径。Java语法检查不等于Android编译或真机通过，后两项待现场验证。
+
+
+## 2026-10-19 本地 560 条基线测试
+
+新增 `-Count 560`，使用已导出的 SFHQ 合成人脸 SDK 特征，不复制或随机伪造模板。手机加载 560 条，执行 1000 次同模板自查询；报告 testTier=baseline-560。此结果仅作为小样本 SDK 索引基线，不代表 20 万容量或真实人脸准确率。
+
+已知提取结果：700 张处理完成，接受 560、拒绝 140、重复 0；features.bin 长度 286720 字节，SHA256 `68a7d3a47db820957cd612be49514ac8f97fcb72f352d75ad204d9a6037b2cac`。本次手机基线尚待用户执行；未宣称通过。保持 manifest、哈希、重复特征检查和原业务数据隔离。

@@ -48,13 +48,13 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
     public void testNativeIndex() throws Exception {
         assertNotNull("Use TerminalScaleRunner",TerminalScaleRunner.arguments);
         count=Integer.parseInt(TerminalScaleRunner.arguments.getString("nativeScale","0"));
-        assertTrue("Unsupported tier",count==1000||count==10000||count==50000||count==100000||count==200000);
+        assertTrue("Unsupported tier",count==560||count==1000||count==10000||count==50000||count==100000||count==200000);
         Context context=getInstrumentation().getTargetContext();
         directory=new File(context.getExternalFilesDir(null),"ykt-test-v2/native-scale");
         assertTrue(directory.isDirectory());
         File data=new File(directory,"features.bin");
         report.put("status","RUNNING").put("nativeSDKTested",false).put("endToEndTested",false)
-            .put("scope","native-index-self-query").put("records",count).put("featureBytes",BYTES)
+            .put("testTier",count==560?"baseline-560":"scale").put("scope","native-index-self-query").put("records",count).put("featureBytes",BYTES)
             .put("model",android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE);
         FaceSearch search=null;
         try {
