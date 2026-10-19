@@ -1,4 +1,4 @@
-param([string]$Dataset = '', [string]$Serial = '', [switch]$PrepareOnly, [switch]$AllowPause, [ValidateSet(560,1000,10000,50000,100000,200000)][int]$Count=1000, [ValidateSet("real","synthetic")][string]$DatasetMode="")
+param([string]$Dataset = '', [string]$Serial = '', [switch]$PrepareOnly, [switch]$AllowPause, [ValidateRange(1,200000)][int]$Count=1000, [ValidateSet("real","synthetic")][string]$DatasetMode="")
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 if(-not (Test-Path (Join-Path $root 'signing.properties'))) { throw 'Original signing.properties required; do not create another key' }
