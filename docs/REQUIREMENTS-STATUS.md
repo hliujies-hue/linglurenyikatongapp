@@ -492,3 +492,13 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 验证：2份Java文件通过JDK JavacTask.parse语法解析，无类型检查；未执行Windows脚本/正式Android编译/SDK/真机。准备入口-PrepareOnly用于用户现有构建环境验证。
 - 阻断：没有20万份真实特征数据集。待实际APK编译、厂商SDK兼容性验证、真机容量报告；SQLite冷启动/不同照片识别率/活体/长期温升/端到端多机验收仍未完成。
 - 依据：APP基线eba58be7dcd63859c862c44941c71071fb3c591d；平台20万SQL证据e11a15fee7c69b6a59c4b26f098d4c09a97151b1。未启用自动构建或计划任务。
+
+
+## NATIVE-SCALE-20261019-R2：SDK图片提取和合成数据分档
+- 现场证据补充：用户Windows构建c0e9f26测试APK成功（16秒）；features.bin不存在，运行前校验停止，尚未安装/执行容量测试。
+- 用户同意合成数据容量与真人准确性分开。调整R1仅真实数据限制：real仍需来源/不同身份声明，synthetic必须显式选择且报告标明非真实身份，不能随机拼特征/复制6人冒充。
+- 新增Extract-NativeFeatures.ps1及TerminalFeatureExtractTest：实际生产FaceEngine图片质量检测与SDK提取，临时独立数据库，重复特征去除、质量失败逐行原因、语料哈希绑定、逐图checkpoint、断点续做、导出features.bin和manifest。输入需合法可用图片，不读取业务图库，不触发业务同步。
+- Test-NativeScale支持1000/10000/50000/100000/200000档位，全数据包校验后测试前N条，保留模式/总数/测试数/哈希。默认1000，未指定模式阻断；原特征自回查仍非真人准确率。
+- 维护：提取测试目录为续做保留输入与checkpoint，明确在操作文档列出；可捕获结束后重启原APP。低内存/STOP/30分钟在检查点中止，native卡死无法保证及时响应。手机生产版本136不变，无平台部署或自动计划任务。
+- 验证：新增/修改Java经JDK语法解析通过，没有类型检查；新批次未在Windows编译、未运行手机提取或分档测试。R1旧测试APK编译成功不能作为本批编译通过。
+- 未完成：合成图片语料尚无，工具不生成图片；20万有效特征未获得。后续仍需实际数据准备、编译、提取恢复、容量、SQLite冷启动、长时温升、真人准确性和完整链路验收。基线c0e9f26db718eb522441ac9c8fa149725aca60f8。

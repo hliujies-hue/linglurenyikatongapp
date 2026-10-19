@@ -19,7 +19,8 @@ import org.json.JSONObject;
 
 /** Real native index, isolated instrumentation process; no TerminalRuntime or business DB. */
 public final class TerminalNativeScaleTest extends InstrumentationTestCase {
-    private static final int COUNT=200000, BYTES=512;
+    private static final int BYTES=512;
+    private int count;
     private File directory;
     private final JSONObject report=new JSONObject();
     private long peakPss;
@@ -44,15 +45,16 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
     private static String hex(byte[] bytes) {
         StringBuilder out=new StringBuilder();for(byte b:bytes)out.append(String.format(Locale.US,"%02x",b&255));return out.toString();
     }
-    public void testNative200K() throws Exception {
+    public void testNativeIndex() throws Exception {
         assertNotNull("Use TerminalScaleRunner",TerminalScaleRunner.arguments);
-        assertEquals("Explicit opt-in required","200000",TerminalScaleRunner.arguments.getString("nativeScale"));
+        count=Integer.parseInt(TerminalScaleRunner.arguments.getString("nativeScale","0"));
+        assertTrue("Unsupported tier",count==1000||count==10000||count==50000||count==100000||count==200000);
         Context context=getInstrumentation().getTargetContext();
         directory=new File(getInstrumentation().getContext().getExternalFilesDir(null),"native-scale");
         assertTrue(directory.isDirectory());
         File data=new File(directory,"features.bin");
-        report.put("status","RUNNING").put("nativeSDKTested",true).put("endToEndTested",false)
-            .put("scope","native-index-self-query").put("records",COUNT).put("featureBytes",BYTES)
+        report.put("status","RUNNING").put("nativeSDKTested",false).put("endToEndTested",false)
+            .put("scope","native-index-self-query").put("records",count).put("featureBytes",BYTES)
             .put("model",android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE);
         FaceSearch search=null;
         try {
@@ -63,17 +65,21 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             JSONObject manifest=new JSONObject(new String(manifestBytes,"UTF-8"));
             assertEquals("SDK version mismatch","8.5",manifest.getString("sdkVersion"));
             assertEquals("Feature type mismatch","LIVE_PHOTO",manifest.getString("featureType"));
-            assertEquals(COUNT,manifest.getInt("count"));
-            assertTrue("Dataset owner must attest to genuine distinct identities",manifest.getBoolean("genuineDistinctIdentities"));
-            assertTrue("Synthetic dataset prohibited",!manifest.getBoolean("synthetic"));
-            report.put("identityDistinctness","dataset-provider-attested-not-independently-verified");
-            assertEquals("Must contain exactly 200000 distinct 512-byte SDK templates",(long)COUNT*BYTES,data.length());
+            int datasetCount=manifest.getInt("count");
+            assertTrue("Insufficient or oversized dataset",datasetCount>=count&&datasetCount<=200000);
+            boolean synthetic=manifest.getBoolean("synthetic");
+            String mode=TerminalScaleRunner.arguments.getString("datasetMode","");
+            assertEquals("Dataset mode must be explicit",synthetic?"synthetic":"real",mode);
+            if(!synthetic)assertTrue("Real identities require provider attestation",manifest.getBoolean("genuineDistinctIdentities"));
+            report.put("datasetMode",mode).put("datasetCount",datasetCount)
+                .put("identityDistinctness",synthetic?"synthetic-not-real-identities":"provider-attested-not-independently-verified");
+            assertEquals("Dataset byte length mismatch",(long)datasetCount*BYTES,data.length());
             String expected=TerminalScaleRunner.arguments.getString("datasetSha256","");
             assertTrue("Dataset SHA256 required",expected.matches("[a-f0-9]{64}"));
             MessageDigest whole=MessageDigest.getInstance("SHA-256"),single=MessageDigest.getInstance("SHA-256");
             Set<String> seen=new HashSet<>();byte[] bytes=new byte[BYTES];
             try(DataInputStream input=new DataInputStream(new BufferedInputStream(new FileInputStream(data)))) {
-                for(int i=0;i<COUNT;i++) {
+                for(int i=0;i<datasetCount;i++) {
                     input.readFully(bytes);whole.update(bytes);
                     assertTrue("Duplicate template at row "+(i+1),seen.add(hex(single.digest(bytes))));
                     boolean nonzero=false;for(byte b:bytes)if(b!=0){nonzero=true;break;}
@@ -96,9 +102,10 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             assertEquals("License initialization failed",0,result[0]);
             search=new FaceSearch();search.setNeedJoinDB(false);search.setMaxUpdateSize(0);
             assertEquals("Native clear failed",0,search.featureClear());
+            report.put("nativeSDKTested",true);
             long start=SystemClock.elapsedRealtime();
             try(DataInputStream input=new DataInputStream(new BufferedInputStream(new FileInputStream(data)))) {
-                for(int i=1;i<=COUNT;i++) {
+                for(int i=1;i<=count;i++) {
                     input.readFully(bytes);assertEquals("Native push failed at "+i,0,search.pushPersonById(i,bytes));
                     if(i%1000==0)checkpoint("LOADING",i);
                 }
@@ -107,7 +114,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             long[] durations=new long[1000];int correct=0;
             try(RandomAccessFile input=new RandomAccessFile(data,"r")) {
                 for(int i=0;i<durations.length;i++) {
-                    int id=1+(int)((long)i*(COUNT-1)/(durations.length-1));
+                    int id=1+(int)((long)i*(count-1)/(durations.length-1));
                     input.seek((long)(id-1)*BYTES);input.readFully(bytes);
                     long at=System.nanoTime();
                     List<? extends Feature> found=search.search(BDFaceSDKCommon.FeatureType.BDFACE_FEATURE_TYPE_LIVE_PHOTO,80f,1,bytes,true);
@@ -120,7 +127,7 @@ public final class TerminalNativeScaleTest extends InstrumentationTestCase {
             report.put("queries",durations.length).put("selfMatches",correct).put("threshold",80)
                 .put("queryP50Ms",durations[500]/1e6).put("queryP95Ms",durations[950]/1e6).put("queryP99Ms",durations[990]/1e6);
             assertEquals("Self-query mismatch; not a real-face accuracy measurement",1000,correct);
-            checkpoint("COMPLETE",COUNT);report.put("status","PASS");persist();
+            checkpoint("COMPLETE",count);report.put("status","PASS");persist();
         } catch(Throwable error) {
             report.put("status","FAIL").put("errorType",error.getClass().getSimpleName());persist();
             throw new AssertionError("Native scale failed; see phase/report and instrumentation output",error);

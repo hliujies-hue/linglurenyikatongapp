@@ -1,48 +1,53 @@
-# 真机20万特征索引测试（入口已实现，尚未实测）
+# 手机SDK特征制作与分档容量测试
 
-## 范围与当前状态
-正式APP仍为0.7.17-device-info / 136。本次新增独立androidTest APK及Windows手工入口，不增加日常APP菜单，不启用自动构建任务。现有手机已由用户确认授权、登录、6人同步和实际核验正常。数据库20万任务报告已在平台仓库e11a15fee7c69b6a59c4b26f098d4c09a97151b1归档。
+## 当前状态
+正式APP仍136。用户确认6人实际核验正常，c0e9f26版测试APK在Windows编译成功（16秒），没有数据所以没有真机容量结果。本批新增图片提取、续做、显式synthetic/real模式和1000/10000/50000/100000/200000档位，仅通过Java语法解析；新APK尚未编译或运行。没有合成图片语料；工具不会生成照片，也不复制6人或拼随机特征。
 
-测试直接调用真实SDK FaceSearch.pushPersonById/search，单线程装载200000条，再对分布于全库的1000条原始特征做同特征回查（固定阈值80）。这是索引容量/自检延迟测试，不是不同照片识别率、活体、完整入园、SQLite冷启动或长时温升测试。数据写入后缓存效应存在；加载耗时包含周期性采样和报告落盘。
+## 数据与报告含义
+synthetic：合法可用的合成人脸图片，经真实SDK提取，结果只能代表该合成数据分布下的容量和延迟。real：提供方确认使用权限和一人一张，显式-AttestDistinctPeople。不同特征不等于不同身份，照片模式/身份声明不是独立验证。不要把图片/特征提交Git或发到聊天。
 
-## 测试数据前置条件
-目前没有200000份有效SDK特征，不能开始正式容量验收。需数据提供方准备与当前百度SDK8.5及LIVE_PHOTO模型兼容的真实特征；不能随机生成、复制现有6人、将同一人不同照片冒充不同人或从业务库擅自导出。
+features.bin为连续512字节特征，无文件头，行号作为测试ID。旁边manifest.json包含sdkVersion=8.5、featureType=LIVE_PHOTO、有效count、synthetic布尔值、genuineDistinctIdentities声明、sha256；提取工具自动生成。不能只修改声明冒充兼容数据。识别准确率需要注册照以外的查询照片和未注册人员，当前原特征自回查不是此项测试。
 
-features.bin为200000个连续的512字节特征，总长102400000字节。无文件头、无ID（行号1..200000是临时索引ID）。同目录manifest.json必须由数据提供方据实填写：
-
-```json
-{"sdkVersion":"8.5","featureType":"LIVE_PHOTO","count":200000,"genuineDistinctIdentities":true,"synthetic":false,"sha256":"features.bin的64位小写SHA256"}
-```
-
-长度、哈希、非全零、特征字节不重复均会检查。字节不同不能证明人物身份不同或算法模型兼容；来源声明不是独立验证。数据提供方需要核实合法使用范围、提取模型及不同身份，不能只修改manifest骗过校验。特征文件不要提交Git或发到聊天中。
-
-## Windows操作
-使用现有C:\Users\Administrator\Desktop\app及原正式签名，先准备测试APK（无需数据、不会操作手机）：
-
+## 只编译
 ```powershell
 & .\scripts\Test-NativeScale.ps1 -PrepareOnly
 ```
+不操作手机，保持原正式签名。
 
-准备数据后，连接一部闲置且USB调试已授权的测试手机，正式APP版本码136、维护页待确认记录0。测试会暂时停止该手机核验，不用于正在接待游客的手机。先保持屏幕亮起，确保授权初始化所需网络正常。
-
+## 图片提取
+准备无子目录的jpg/jpeg/png/webp图片文件夹，单张1字节至16MiB，总数不超过20万。连接一部闲置、已授权且版本136的手机，待确认记录0。路径必须是实际存在的语料文件夹：
 ```powershell
-& .\scripts\Test-NativeScale.ps1 -Dataset 'C:\Yikatong-TestData\features.bin' -AllowPause
+& .\scripts\Extract-NativeFeatures.ps1 -SourceFolder 'C:\Yikatong-TestData\synthetic-images' -DatasetMode synthetic -MaxPhotos 1000 -AllowPause
 ```
+安装独立测试APK，暂停核验。通过生产TerminalFaceEngine.upsert质量检测和特征提取；使用native-feature-extract-test.db，不打开生产terminal-v2.db、不启动生产Runtime/同步线程。每张提取后删除临时索引人员。重复特征/质量失败写rejections.jsonl；其他SDK/数据库错误停止。每张输出及checkpoint落盘；已有输出尾部若未完成checkpoint，续做时截去。
 
-多部手机时必须加-Serial指定序列号。脚本只安装独立测试APK，Android签名匹配失败会停止，不卸载或清数据。仪器测试启动独立的一次性目标进程，不启动TerminalRuntime/同步线程，不读写生产TerminalStore；只读取现有成功授权码供SDK初始化，报告不导出授权码、指纹、人脸特征。
+成功输出在桌面Yikatong-FeatureData时间目录，包括features.bin、manifest.json、checkpoint.json、rejections.jsonl和仪器日志。有效数可能少于照片数，不足对应档位会拒绝，不补随机字节。测试过程中只读现有成功授权码用于SDK初始化，不在报告中导出。结束重新打开APP，人工确认原6人和授权核验正常。
 
-临时特征在测试APK的专属外部files/native-scale目录。完成或可捕获失败后拉取report.json/终端日志到桌面Yikatong-NativeScale时间目录，尝试移除手机测试特征，停止测试进程并重新打开原APP。重开后检查6人名单、登录、授权及核验仍正常；这一步不是脚本自动验收。
-
-## 停止及故障
-每1000次装载/50次查询检查系统lowMemory或可用内存低于384MiB，记录采样PSS峰值与原生堆。并检查30分钟总时限、STOP文件。不是硬性资源上限；单次native调用卡住时无法立即执行检查，仍可能发生OOM/崩溃。
-
-需要中止时，在另一个PowerShell窗口执行（仅连接一部测试手机时）：
+## 续做
+照片/进度保留在测试包专属files/feature-extract，首次上传逐图片执行，数量大时会慢。Resume不再次上传；必须使用原来的手机语料和SDK，重新核对全部图片哈希：
 ```powershell
+& .\scripts\Extract-NativeFeatures.ps1 -Resume -DatasetMode synthetic -MaxPhotos 10000 -AllowPause
+```
+MaxPhotos是累计处理上限，必须首次已有足量图片。更换语料前先导出上一批，再仅清理测试包feature-extract目录，不能复用不同语料checkpoint。首次目录已存在时脚本停止，不覆盖。
+
+## 分档压测
+Dataset替换为实际导出路径：
+```powershell
+& .\scripts\Test-NativeScale.ps1 -Dataset 'C:\Yikatong-TestData\features.bin' -DatasetMode synthetic -Count 1000 -AllowPause
+```
+随后人工核对每档结果，再依次Count=10000/50000/100000/200000。有效count必须足够。完整包哈希、全零和重复字节校验后装载前Count条，报告记录全包count/哈希和本档count，不能混淆。固定阈值80，抽取分布于全库的1000条原特征回查，记录加载时间、P50/P95/P99、命中数、周期采样PSS和原生堆。采样峰值不是精确峰值，加载包含采样落盘，重复查询存在缓存效应；不代表持续吞吐、冷启动SQLite、活体或真人准确率。
+
+报告在桌面Yikatong-NativeScale时间目录。PASS必须仪器测试OK(1 test)、报告PASS、哈希/模式/档位匹配、自回查1000次ID匹配且native清理成功。测试脚本结束尝试删索引测试副本features.bin/manifest.json并重新打开APP。
+
+## 中止与残留
+检查点遇到STOP、系统lowMemory或可用内存低于384MiB、运行超过30分钟会停止。提取时限不包含开始前全语料哈希扫描；native单次卡住时检查不能及时执行，仍可能OOM。多设备时以下adb命令需加-s指定手机：
+```powershell
+# 中止提取
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/feature-extract/STOP
+# 中止索引测试
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" shell touch /sdcard/Android/data/com.lingluren.yikatong.terminal.test/files/native-scale/STOP
 ```
-若native调用无响应，可force-stop正式包，结束本轮并保留失败状态，不能记为通过。断开USB/关电脑时finally未必执行；报告和特征可能留在测试专属目录，重连后先拉取报告，再仅删除该目录features.bin/manifest.json，不得清除正式应用数据。
+PAUSED/FAIL/RUNNING/缺报告不能算通过。断开USB/关闭Windows进程时finally不保证执行，先拉报告再恢复APP。图片提取目录为续做保留原图/特征（不是后台自动备份），确认电脑导出校验成功后仅清理该测试目录。不要卸载或清空正式APP数据，不要将这些测试文件作为公共下载。
 
-PASS要求仪器测试OK(1 test)、报告PASS、数据哈希匹配、1000次自回查ID匹配、native清理返回0。报告RUNNING/缺失或没有仪器测试完成标志均不能当成功。PSS是周期采样峰值，不是精确全过程最大值；阈值80为本测试固定值，不修改生产识别设置。
-
-## 验证与剩余
-当前开发环境无Android SDK/百度二进制/Windows PowerShell/连接手机，未构建测试APK，未执行SDK。两份新增Java文件已通过JDK编译器语法解析（没有类型检查）；源码检查不等于厂商SDK编译通过。首次Windows PrepareOnly是实际编译验证入口。仍需真实数据集和手机运行日志；后续再单独开展SQLite加载、不同照片查询、稳定性/温升和端到端验收。
+## 待完成
+实际图片语料、新版APK编译、提取续做/容量真机报告、长时内存温升、不同照片准确率和完整入园流程。目前不能报告20万手机测试通过。

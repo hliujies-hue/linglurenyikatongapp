@@ -1,16 +1,17 @@
-param([string]$Dataset = '', [string]$Serial = '', [switch]$PrepareOnly, [switch]$AllowPause)
+param([string]$Dataset = '', [string]$Serial = '', [switch]$PrepareOnly, [switch]$AllowPause, [ValidateSet(1000,10000,50000,100000,200000)][int]$Count=1000, [ValidateSet("real","synthetic")][string]$DatasetMode="")
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 if(-not (Test-Path (Join-Path $root 'signing.properties'))) { throw 'Original signing.properties required; do not create another key' }
 if(-not $PrepareOnly) {
  if(-not $AllowPause) { throw 'This stops verification during the test. Use -AllowPause on an idle test phone with no pending records.' }
- if(-not $Dataset -or -not (Test-Path -LiteralPath $Dataset -PathType Leaf)) { throw 'Supply the real SDK features.bin dataset; no synthetic fallback is allowed' }
- if((Get-Item -LiteralPath $Dataset).Length -ne 102400000) { throw 'Dataset must contain 200000 x 512-byte templates (102400000 bytes)' }
+ if(-not $Dataset -or -not (Test-Path -LiteralPath $Dataset -PathType Leaf)) { throw 'Supply SDK-extracted features.bin; arbitrary random feature bytes are not allowed' }
+ if(-not $DatasetMode) { throw 'Specify -DatasetMode real or synthetic explicitly' }
  $datasetHash=(Get-FileHash -LiteralPath $Dataset -Algorithm SHA256).Hash.ToLowerInvariant()
  $manifestPath=Join-Path (Split-Path (Resolve-Path -LiteralPath $Dataset).Path -Parent) 'manifest.json'
  if(-not (Test-Path -LiteralPath $manifestPath)) { throw 'manifest.json required beside features.bin; see docs/testing/NATIVE-SCALE.md' }
  $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
- if($manifest.sdkVersion -ne '8.5' -or $manifest.featureType -ne 'LIVE_PHOTO' -or $manifest.count -ne 200000 -or $manifest.genuineDistinctIdentities -ne $true -or $manifest.synthetic -ne $false -or $manifest.sha256 -cne $datasetHash) { throw 'Dataset manifest mismatch or genuine distinct SDK data not attested' }
+ if((Get-Item -LiteralPath $Dataset).Length -ne ([long]$manifest.count*512)) { throw 'Dataset size does not match manifest' }
+ if($manifest.sdkVersion -ne '8.5' -or $manifest.featureType -ne 'LIVE_PHOTO' -or $manifest.count -lt $Count -or $manifest.count -gt 200000 -or ($DatasetMode -eq 'real' -and ($manifest.genuineDistinctIdentities -ne $true -or $manifest.synthetic -ne $false)) -or ($DatasetMode -eq 'synthetic' -and $manifest.synthetic -ne $true) -or $manifest.sha256 -cne $datasetHash) { throw 'Dataset manifest mismatch or genuine distinct SDK data not attested' }
 }
 if(-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\javac.exe'))) {
  $env:JAVA_HOME=Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
@@ -52,12 +53,12 @@ AdbChecked @('push',$Dataset,"$dest/features.bin") | Out-Host
 AdbChecked @('push',$manifestPath,"$dest/manifest.json") | Out-Host
 AdbChecked @('shell','am','force-stop',$package) | Out-Null
 try {
- $output=AdbChecked @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalNativeScaleTest",'-e','nativeScale','200000','-e','datasetSha256',$datasetHash,"$package.test/$package.TerminalScaleRunner")
+ $output=AdbChecked @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalNativeScaleTest",'-e','nativeScale',"$Count",'-e','datasetMode',$DatasetMode,'-e','datasetSha256',$datasetHash,"$package.test/$package.TerminalScaleRunner")
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding UTF8
  $output | Out-Host
  AdbChecked @('pull',"$dest/report.json",(Join-Path $folder 'report.json')) | Out-Host
  $report=Get-Content -LiteralPath (Join-Path $folder 'report.json') -Raw | ConvertFrom-Json
- if(($output -join "`n") -notmatch 'OK \(1 test\)' -or $report.status -ne 'PASS' -or $report.nativeCleanupCode -ne 0 -or $report.datasetSha256 -ne $datasetHash) { throw "Native test did not pass. Report: $folder" }
+ if(($output -join "`n") -notmatch 'OK \(1 test\)' -or $report.status -ne 'PASS' -or $report.nativeCleanupCode -ne 0 -or $report.datasetSha256 -ne $datasetHash -or $report.records -ne $Count -or $report.datasetMode -ne $DatasetMode) { throw "Native test did not pass. Report: $folder" }
  Write-Host "Native index self-query PASS. NOT real-face accuracy or end-to-end acceptance. Report: $folder"
 } finally {
  # Recover diagnostics even when instrumentation crashes. Keep report on phone.
