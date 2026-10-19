@@ -45,7 +45,7 @@ $folder=Join-Path ([Environment]::GetFolderPath('Desktop')) ('Yikatong-FeatureDa
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 Invoke-Adb @('shell','am','force-stop',$package) | Out-Null
 try {
- $output=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest",'-e','extractPhotos','yes','-e','datasetMode',$DatasetMode,'-e','maxPhotos',"$MaxPhotos","$package.test/$package.TerminalScaleRunner")
+ $output=Invoke-Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalFeatureExtractTest#testExtractPhotos",'-e','extractPhotos','yes','-e','datasetMode',$DatasetMode,'-e','maxPhotos',"$MaxPhotos","$package.test/$package.TerminalScaleRunner")
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding UTF8
  $output | Out-Host
  if(($output -join "`n") -notmatch 'OK \(1 test\)') { throw "Instrumentation failed; see $folder\instrumentation.txt." }

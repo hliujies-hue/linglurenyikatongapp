@@ -517,3 +517,9 @@ go test ./internal/service -run 'TestIntegrationTerminal(License|Presence|Reinst
 - 05fed5a现场已编译安装，但目标目录仍 exists=false/readable=false，未提取特征。上一轮修改未完成真机修复。
 - 新增 testPrepareStorage：由目标应用进程创建专用 ykt-test-v2 子目录并实际写读探针；上传后 testValidateImages 逐张打开文件，检查失败即停，不进入SDK。
 - 保留旧目录，不通过放宽全局权限或清理应用数据处理。新路径首次重新上传，后续 Resume 使用新路径。Java语法检查不等于Android编译或真机通过，后两项待现场验证。
+
+
+### R5：提取成功后的脚本误判修复
+- 用户真机 a440953：目录准备与逐图读取通过；主调用执行3项测试，含testExtractPhotos，40.138秒，OK (3 tests)。脚本只接受OK (1 test)，错误阻断了manifest/features导出。
+- 修复：主提取调用明确指定 #testExtractPhotos，保持严格单项成功校验。现场已有结果直接adb pull导出并核对manifest SHA256与count×512长度，无需重新提取。
+- 待取得manifest/checkpoint确认有效、拒绝、重复数量；不能把700张输入写成700条有效特征，也不是容量测试通过。原生1000至200000档仍待有效数据及真机执行。
