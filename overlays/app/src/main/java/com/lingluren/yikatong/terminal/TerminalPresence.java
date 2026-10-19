@@ -56,6 +56,7 @@ final class TerminalPresence {
                 store.metadata(key,token,true);
             }
             JSONObject body=new JSONObject().put("fingerprint",fingerprint).put("connectionToken",token).put("appVersion",TerminalProtocol.VERSION)
+                .put("deviceInfo",new JSONObject().put("brand",android.os.Build.MANUFACTURER).put("model",android.os.Build.MODEL).put("androidVersion",android.os.Build.VERSION.RELEASE).put("androidApi",android.os.Build.VERSION.SDK_INT))
                 .put("sdkVersion","8.5").put("sdkStatus",sdkStatus).put("authorizationStatus",authorization).put("license",license);
             // Original session survives logout in the journal, enabling automatic legacy upgrades.
             JSONObject proof=store.presenceProof(origin);
