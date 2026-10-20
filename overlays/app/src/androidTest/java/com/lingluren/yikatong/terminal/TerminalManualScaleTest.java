@@ -52,10 +52,11 @@ public final class TerminalManualScaleTest extends InstrumentationTestCase {
     };
     private interface Init {void run(Callback callback);}
     private void await(Init init,String stage) throws Exception {
-        show(stage);CountDownLatch latch=new CountDownLatch(1);int[] code={-1};
+        phase(stage);show(stage);CountDownLatch latch=new CountDownLatch(1);int[] code={-1};
         init.run((c,m)->{code[0]=c;latch.countDown();});
         assertTrue(stage+" timeout",latch.await(45,TimeUnit.SECONDS));assertEquals(stage,0,code[0]);guard();
     }
+    private void phase(String value) throws Exception {report.put("phase",value);persist();android.util.Log.i("YktManualScale",value);}
     private void show(String text){if(activity!=null)activity.showStatus("合成背景库："+count+" 条；测试者："+(tester?1:0)+"\n"+text+"\n仅测试：不上传平台，不生成核验记录");}
     private void guard() throws Exception {
         if(closed)throw new IOException("SESSION_CLOSED");
@@ -75,6 +76,7 @@ public final class TerminalManualScaleTest extends InstrumentationTestCase {
         Context context=getInstrumentation().getTargetContext();started=SystemClock.elapsedRealtime();
         directory=new File(context.getExternalFilesDir(null),"ykt-test-v2/manual-scale");assertTrue(directory.isDirectory());
         report.put("status","STARTING").put("scope","manual-camera-native-index").put("endToEndTested",false).put("accuracyMeasured",false).put("model",android.os.Build.MODEL).put("android",android.os.Build.VERSION.RELEASE);
+        phase("VALIDATING_MANIFEST");
         try {
             assertEquals("Grant camera permission in the normal app first",PackageManager.PERMISSION_GRANTED,context.checkCallingOrSelfPermission(Manifest.permission.CAMERA));
             JSONObject manifest=readJson(new File(directory,"manifest.json"));count=manifest.getInt("count");
@@ -84,14 +86,24 @@ public final class TerminalManualScaleTest extends InstrumentationTestCase {
             report.put("records",count).put("datasetSha256",expected).put("datasetMode","synthetic");
             TerminalManualTestActivity.pendingSession=session;
             Intent intent=new Intent(context,TerminalManualTestActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            activity=(TerminalManualTestActivity)getInstrumentation().startActivitySync(intent);
+            // startActivitySync can wait indefinitely when an OEM denies background UI launch.
+            // Use an observational monitor and a bounded wait; do not weaken exported/permission rules.
+            phase("OPENING_TEST_UI");
+            android.app.Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(TerminalManualTestActivity.class.getName(),null,false);
+            try {
+                context.startActivity(intent);
+                android.app.Activity opened=monitor.waitForActivityWithTimeout(30000);
+                if(opened==null)throw new IOException("TEST_UI_NOT_OPENED_WITHIN_30S: Check this app's background pop-up permission; do not open the normal launcher during instrumentation");
+                activity=(TerminalManualTestActivity)opened;
+            } finally {getInstrumentation().removeMonitor(monitor);}
+            phase("VALIDATING_FEATURES");
             File data=new File(directory,"features.bin");assertEquals((long)count*512,data.length());
             show("校验特征文件……");MessageDigest digest=MessageDigest.getInstance("SHA-256");
             try(InputStream in=new BufferedInputStream(new FileInputStream(data))){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1){digest.update(b,0,n);guard();}}
             assertEquals(expected,hex(digest.digest()));
             PreferencesUtil.initPrefs(context);
             String code=context.getSharedPreferences("terminal_license",Context.MODE_PRIVATE).getString("successful_code","");assertFalse("Activate app first",code.isEmpty());
-            show("初始化已保存的算法授权……");BdFaceAuth auth=new BdFaceAuth();assertNotNull(auth.getDeviceId(context));CountDownLatch licensed=new CountDownLatch(1);int[] result={-1};
+            phase("LICENSE_INIT");show("初始化已保存的算法授权……");BdFaceAuth auth=new BdFaceAuth();assertNotNull(auth.getDeviceId(context));CountDownLatch licensed=new CountDownLatch(1);int[] result={-1};
             auth.initLicenseOnLine(context,code,(c,m)->{result[0]=c;licensed.countDown();});assertTrue(licensed.await(90,TimeUnit.SECONDS));assertEquals(0,result[0]);guard();
             detect=new FaceDetect();live=new FaceLive();feature=new FaceFeature();
             BaseConfig config=SingleBaseConfig.getBaseConfig();threshold=config.getLiveThreshold();liveThreshold=config.getRgbLiveScore();
@@ -102,10 +114,10 @@ public final class TerminalManualScaleTest extends InstrumentationTestCase {
             await(cb->live.initModel(context,GlobalSet.LIVE_VIS_MODEL,"","","",GlobalSet.LIVE_NIR_MODEL,GlobalSet.LIVE_DEPTH_MODEL,cb),"加载活体模型");
             await(cb->feature.initModel(context,GlobalSet.RECOGNIZE_IDPHOTO_MODEL,GlobalSet.RECOGNIZE_VIS_MODEL,GlobalSet.RECOGNIZE_NIR_MODEL,"",cb),"加载特征模型");
             search=new FaceSearch();search.setNeedJoinDB(false);search.setMaxUpdateSize(0);assertEquals(0,search.featureClear());
-            long load=SystemClock.elapsedRealtime();byte[] bytes=new byte[512];
+            phase("LOADING_INDEX");long load=SystemClock.elapsedRealtime();byte[] bytes=new byte[512];
             try(DataInputStream in=new DataInputStream(new BufferedInputStream(new FileInputStream(data)))){for(int i=1;i<=count;i++){in.readFully(bytes);assertEquals("Push row "+i,0,search.pushPersonById(i,bytes));if(i%1000==0){show("加载索引："+i+" / "+count);guard();}}}
             report.put("loadWallMs",SystemClock.elapsedRealtime()-load).put("threshold",threshold).put("rgbLiveThreshold",liveThreshold).put("status","RUNNING");persist();
-            ready=true;show("已就绪。先测试未录入情况，再点击录入本人。");
+            phase("CAMERA_READY");ready=true;show("已就绪。先测试未录入情况，再点击录入本人。");
             while(!closed){
                 guard();
                 if(clearing.getAndSet(false)){if(tester){assertEquals(0,search.delPersonById(count+1));tester=false;}show("测试者已移除。可以观察未录入结果。");}

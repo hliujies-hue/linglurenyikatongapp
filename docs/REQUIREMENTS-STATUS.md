@@ -564,3 +564,11 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 验证：2份新增Java及5份新增/修改PowerShell经tree-sitter语法解析无错误；人工审查专用路径、版本/摘要/长度校验、无业务库写入和模型初始化与生产API一致。无完整厂商Demo、Android SDK、Windows环境，未做类型检查、APK编译、Lint或真机测试；不能以原107228自查询PASS替代本批验证。
 - 剩余：用户构建并检查测试页/录入/移除/前后摄/退出与报告；原6人业务恢复、真实人员识别准确性、SQLite冷启动、长期温升及完整平台链路仍待验收。
 - 提交依据：本节与实现同一提交，基线8585548bee304adb9c68b77327c8bb8b3aab7719；未启用CI、自动打包或计划任务。
+
+
+## MANUAL-SCALE-20261020-R2：后台启动拦截导致无期限等待
+- 现场：dd31257在用户Windows完成正式与测试APK编译安装，54900736字节特征上传成功。手机20:13:59.966明确记录Abort background activity starts，TerminalManualTestActivity返回102；20:14:44用户打开的是TerminalEntryActivity，20:16:22同一测试进程29746被SwipeUpClean结束。Process crashed为instrumentation对进程结束的报告，不能解释为本批SDK崩溃或容量不足。此前crash.txt为旧NativeScale崩溃，与本次无关。
+- 修复：移除startActivitySync无限等待，改为非阻断ActivityMonitor观察启动，最多30秒等待，拒绝后明确报TEST_UI_NOT_OPENED_WITHIN_30S；保留非exported及系统权限控制，受限制手机须在本APP权限设置允许后台弹出界面后重试。不得打开正常业务入口与测试SDK并行。
+- 诊断：启动UI之前即落盘phase；清单/特征校验、授权、各模型、载库和就绪阶段可追踪；脚本先判instrumentation失败，避免report缺失掩盖原始错误；自动保存启动日志与退出原因。整机原始日志不入Git。
+- 验证：本批修改Java/PowerShell通过tree-sitter语法解析；未在本地进行Android类型检查或Windows执行，未真机复测。APP版本137不变，仅测试启动及诊断修改；不重新提取图片、不写业务库、不启用CI。
+- 提交依据：基线dd31257d3c9458308a482369f53805b99147e26c，本节与修复同提交。剩余：允许本APP后台弹出界面后验证30秒内打开、107228条加载、本人录入匹配及退出恢复6人业务库。

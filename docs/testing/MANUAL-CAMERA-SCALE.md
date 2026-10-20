@@ -35,3 +35,10 @@ APP版本137 / 0.7.18-manual-test新增私有TerminalManualTestActivity。没有
 正常结束只移除手机files/ykt-test-v2/manual-scale/features.bin和manifest.json，保留report；电脑原数据和63批特征不删除。SDK RAM索引清空后进程停止，正常APP重新恢复自身6人库。不要卸载APP或清除应用数据。
 
 本批代码仅完成静态语法和边界审查；当前执行环境没有完整厂商Demo、Android SDK和Windows构建环境，尚未编译APK或完成真机手动验收。独立数据库冷启动、长时稳定性、多机并发、完整平台核验仍未覆盖。
+
+
+## 2026-10-20 启动被手机系统拦截
+
+现场系统日志确认后台启动被拒绝（Abort background activity starts，返回102），旧startActivitySync无限等待，尚未进入特征校验/SDK载库。后续上划清理导致instrumentation报告Process crashed。新版改为ActivityMonitor最多等待30秒，提前落盘phase和错误，保存startup-system.txt/exit-info.txt，缺少report不覆盖instrumentation原始失败。
+
+在本APP权限设置中允许“后台弹出界面”（具体菜单名称依手机系统而异），再重跑手动测试命令。只改变本APP对应权限，不关闭全局限制、不修改非exported属性。测试期间不要点击正常桌面入口，等待自动打开独立测试页；30秒未打开会明确停止。APP版本仍137，原图及已有features.bin不需重做。修复已做语法解析，真机效果尚待复测。

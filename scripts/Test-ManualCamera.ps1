@@ -50,12 +50,15 @@ try {
  Adb @('push',$manifestPath,"$dest/manifest.json") | Out-Host
  Adb @('shell','am','force-stop',$package) | Out-Null
  Write-Host "Opening camera test with $($manifest.count) synthetic background templates. Keep USB connected."
+ Write-Host 'If blocked by phone background-pop-up policy, allow that permission for this app before retrying. UI startup times out after 30 seconds.'
+ Write-Host 'Do not open the normal launcher during this test; only use the automatically opened test page.'
  Write-Host 'On phone: wait for ready, check unknown face, enroll yourself, move away and return, then remove yourself and retest.'
  Write-Host 'Tap the END button on the phone to export results and restore the normal app. Maximum session: 30 minutes.'
  Write-Host "Report folder: $folder"
  $output=Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalManualScaleTest#testManualCamera",'-e','datasetSha256',$hash,$runner)
  $output | Set-Content -LiteralPath (Join-Path $folder 'instrumentation.txt') -Encoding utf8NoBOM
  $output | Out-Host
+ if(($output -join "`n") -notmatch 'OK \(1 test\)' -or ($output -join "`n") -match 'Process crashed|FAILURES!!!'){throw "Instrumentation failed; see $folder\instrumentation.txt. A missing report is secondary."}
  Adb @('pull',"$dest/report.json",(Join-Path $folder 'report.json')) | Out-Host
  $report=Get-Content -LiteralPath (Join-Path $folder 'report.json') -Raw | ConvertFrom-Json
  if(($output -join "`n") -notmatch 'OK \(1 test\)' -or $report.status -ne 'SESSION_ENDED' -or $report.nativeCleanupCode -ne 0 -or $report.datasetSha256 -cne $hash -or $report.records -ne $manifest.count){throw 'Manual session incomplete; keep report and instrumentation output'}
@@ -63,6 +66,9 @@ try {
  Get-Content -LiteralPath (Join-Path $folder 'report.json') -Raw | Out-Host
 } finally {
  if($touched){
+  # Capture startup evidence BEFORE force-stop/recovery; keep original test failure primary.
+  & $adb -s $Serial logcat -d -b main -b system -v threadtime 'ActivityManager:V' 'ActivityTaskManager:V' 'AndroidRuntime:V' 'TestRunner:V' 'Instrumentation:V' 'YktManualScale:V' '*:S' 2>&1 | Set-Content -LiteralPath (Join-Path $folder 'startup-system.txt') -Encoding utf8NoBOM
+  & $adb -s $Serial shell dumpsys activity exit-info $package 2>&1 | Set-Content -LiteralPath (Join-Path $folder 'exit-info.txt') -Encoding utf8NoBOM
   # Stop the SDK process before deleting only this session's uploaded test files.
   & $adb -s $Serial shell am force-stop $package
   & $adb -s $Serial pull "$dest/report.json" (Join-Path $folder 'report.json') 2>&1 | Out-Host
