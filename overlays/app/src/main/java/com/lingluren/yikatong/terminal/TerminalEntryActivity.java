@@ -546,11 +546,30 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private void updateSync(){
         if(loadRing==null)return;
         long total=runtime.loadTotal(),loaded=runtime.loadedFaces();JSONObject p=runtime.uiProfile();long local=p.optLong("localFaces");
-        boolean loadedReady=runtime.libraryReady(),failed=runtime.libraryFailed();loadRing.setState(loadedReady,failed);loadRing.setProgress(loadedReady?local:loaded,loadedReady?local:total);
-        loadText.setText(failed?"本地特征加载失败\n请打开设备诊断查看原因":loadedReady?(p.has("localFaces")?"当前本地特征："+local+" 人\n"+(local==0?"暂无可检索人员特征":"本地检索库已就绪"):"算法已就绪\n本地人数等待平台状态刷新"):(loaded+" / "+total+" 人\n加载用时 "+runtime.loadElapsed()/1000+" 秒"));
+        boolean loadedReady=runtime.libraryReady(),failed=runtime.libraryFailed();loadRing.setState(loadedReady&&!runtime.loginExpired(),failed||runtime.loginExpired());loadRing.setProgress(loadedReady?local:loaded,loadedReady?local:total);
+        loadText.setText(runtime.loginExpired()?"登录已失效\n请先重新验证当前账号":failed?"本地特征加载失败\n请打开设备诊断查看原因":loadedReady?(p.has("localFaces")?"当前本地特征："+local+" 人\n"+(local==0?"暂无可检索人员特征":"本地检索库已就绪"):"算法已就绪\n本地人数等待平台状态刷新"):(loaded+" / "+total+" 人\n加载用时 "+runtime.loadElapsed()/1000+" 秒"));
         JSONObject ops=p.optJSONObject("syncOperations");
         if(syncValues!=null){syncValues[0].setText(count(ops,"upsert"));syncValues[1].setText(count(ops,"delete"));syncValues[2].setText(count(p,"pendingReceipts"));syncValues[3].setText(count(p,"pendingEvents"));syncValues[4].setText(count(p,"photoRejected"));}
-        syncDetail.setText("待同步人员任务："+count(p,"pendingPeople")+"\n平台配置："+(p.optBoolean("platformSynced")?"已同步":"等待同步")+"\n领路人脸算法："+(p.optBoolean("sdkReady")?"已就绪":"准备中")+"\n数据更新时间："+(p.optString("serverTime").isEmpty()?"尚未获取":p.optString("serverTime"))+"\n\n新增和更新合并为待写入；待回执可能与人员任务重叠。网络异常时保留最近数据，请重试同步。照片待处理表示对应照片未通过算法处理；请管理员在设备人员同步页面查看原因并更换照片。");
+        syncDetail.setText("待同步人员任务："+count(p,"pendingPeople")+"\n平台配置："+(p.optBoolean("platformSynced")?"已同步":"等待同步")+"\n领路人脸算法："+(runtime.loginExpired()?"等待重新验证账号":p.optBoolean("sdkReady")?"已就绪":"准备中")+"\n数据更新时间："+(p.optString("serverTime").isEmpty()?"尚未获取":p.optString("serverTime"))+"\n\n新增和更新合并为待写入；待回执可能与人员任务重叠。网络异常时保留最近数据，请重试同步。照片待处理表示对应照片未通过算法处理；请管理员在设备人员同步页面查看原因并更换照片。");
+    }
+    private void showReauthentication(){
+        if(!runtime.hasSession()){showLogin();return;}
+        final EditText password=new EditText(this);password.setSingleLine();password.setHint("请输入当前账号密码");
+        password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        final android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this)
+            .setTitle("重新验证当前账号")
+            .setMessage("账号："+runtime.currentUsername()+"\n验证后继续同步，保留本地人员、设备授权和待确认记录。")
+            .setView(password).setPositiveButton("验证并恢复",null).setNegativeButton("取消",null).create();
+        dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{
+            String value=password.getText().toString();
+            if(value.isEmpty()){password.setError("请输入密码");return;}
+            dialog.getButton(-1).setEnabled(false);password.setText("");
+            runtime.reauthenticate(value,error->{
+                if(destroyed)return;
+                if(error==null){dialog.dismiss();showSyncPage();}
+                else {dialog.getButton(-1).setEnabled(true);password.setError(error);}
+            });
+        }));dialog.show();
     }
     private void showSyncPage(){
         LinearLayout root=page("人员同步");syncPage=true;status.setText(TerminalMessages.friendly(lastState));
@@ -558,7 +577,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         LinearLayout changes=card(root);label(changes,"平台增量同步");syncValues=new TextView[5];String[] labels={"待写入人员","待删除人员","人员任务回执","核验记录待确认","照片待处理（无法刷脸）"};for(int i=0;i<labels.length;i++)syncValues[i]=row(changes,labels[i],"读取中…");
         syncDetail=text("",13,MUTED);syncDetail.setPadding(0,dp(12),0,0);changes.addView(syncDetail);updateSync();
         LinearLayout note=card(root);note.setBackground(background(0xffe4f3ff,0));note.addView(text("本地特征已保存在设备中。重启后分批加载到算法内存，不重复下载照片；全部加载并同步完成后可开始核验。",14,MUTED));
-        action(root,"立即同步",runtime::retry,false);action(root,"设备诊断",this::showDiagnostics,false);
+        action(root,"重新验证当前账号",this::showReauthentication,false);action(root,"立即同步",runtime::retry,false);action(root,"设备诊断",this::showDiagnostics,false);
     }
     private String deviceTime(long time){if(time<=0)return "尚无记录";SimpleDateFormat fmt=new SimpleDateFormat("MM-dd HH:mm:ss",Locale.CHINA);fmt.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));return fmt.format(new java.util.Date(time));}
     private void exportDiagnostic(String snapshot){
@@ -594,7 +613,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
                 JSONObject q=data.optJSONObject("sync");long age=data.optLong("heartbeatAgeSeconds",-1);
                 String info="APP："+data.optString("appVersion")+"\nAndroid："+Build.VERSION.RELEASE+"\n平台："+savedOrigin()
                     +"\n本机标识摘要："+deviceIdentitySummary()+"\n标识用途：核对平台档案，不代表算法授权状态"+"\n算法设备指纹："+(license.fingerprintReady()?"已取得（不导出指纹值）":"未取得")+"\n激活阶段："+TerminalActivationGate.phaseText(license.state().phase)+"\n最近激活尝试："+deviceTime(license.lastAttempt())+"\n激活错误："+(license.state().error==0?"无":TerminalActivationGate.describe(license.state().error))
-                    +"\n设备名称："+data.optString("deviceName")+"\nAPP配置版本："+data.optLong("appConfigRevision")+"\nAPP限制原因："+data.optString("appBlockedReason","无")+"\n设备授权："+(data.optBoolean("authorized")?"已完成":"未完成")+"\n账号会话："+(data.optBoolean("hasSession")?"已登录":"未登录")
+                    +"\n设备名称："+data.optString("deviceName")+"\nAPP配置版本："+data.optLong("appConfigRevision")+"\nAPP限制原因："+data.optString("appBlockedReason","无")+"\n设备授权："+(data.optBoolean("authorized")?"已完成":"未完成")+"\n账号会话："+(data.optBoolean("loginExpired")?"登录已失效，需重新验证":data.optBoolean("hasSession")?"已保存登录会话":"未登录")+"\n最近同步错误："+data.optString("lastSyncError","")
                     +"\n领路人脸算法："+(data.optBoolean("modelFailed")?"加载失败":data.optBoolean("sdkReady")?"就绪":data.optBoolean("loading")?"加载中":"等待初始化")
                     +"\n当前可核验："+(data.optBoolean("ready")?"是":"否")+"\n相机权限："+(cameraAllowed()?"已开启":"未开启")
                     +"\n算法授权备份："+data.optString("licenseBackup","尚未确认")
@@ -614,7 +633,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void showMaintenance(){
         LinearLayout root=page("设备维护");maintenancePage=true;status.setText(TerminalMessages.friendly(lastState));JSONObject p=runtime.uiProfile();LinearLayout device=card(root);LinearLayout licensed=iconLabel("check",authorized?"设备已授权":"设备未授权",0xff00b779,32);licensed.setPadding(0,dp(8),0,dp(8));licensed.setBackground(background(0xffeaf8f1,0));round(licensed,8);device.addView(licensed);deviceNameView=row(device,"设备名称",runtime.deviceName());maintenanceConnection=row(device,"平台通信",TerminalMessages.friendly(runtime.communicationStatus()).replace("平台通信：",""));row(device,"当前账号",p.optString("accountName","待同步"));row(device,"所属景区",p.optString("scenicName","待同步"));row(device,"识别模式","RGB活体");
-        LinearLayout sync=card(root);label(sync,"数据与同步");TextView faceCount=row(sync,"本地特征","读取中…");TextView pendingCount=row(sync,"待确认记录","读取中…");final int maintenanceVersion=pageVersion;runtime.localRecords((data,error)->{if(destroyed||pageVersion!=maintenanceVersion)return;faceCount.setText(error==null?String.valueOf(data.optLong("localFaces")):"暂不可用");pendingCount.setText(error==null?String.valueOf(data.optLong("pending")):"暂不可用");});row(sync,"同步状态",runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);
+        LinearLayout sync=card(root);label(sync,"数据与同步");TextView faceCount=row(sync,"本地特征","读取中…");TextView pendingCount=row(sync,"待确认记录","读取中…");final int maintenanceVersion=pageVersion;runtime.localRecords((data,error)->{if(destroyed||pageVersion!=maintenanceVersion)return;faceCount.setText(error==null?String.valueOf(data.optLong("localFaces")):"暂不可用");pendingCount.setText(error==null?String.valueOf(data.optLong("pending")):"暂不可用");});row(sync,"同步状态",runtime.loginExpired()?"登录失效，请重新验证":runtime.ready()?"已完成":"准备中");action(sync,"立即同步 / 查看进度",this::showSyncPage,false);action(sync,"重新验证当前账号",this::showReauthentication,false);
         LinearLayout audioBox=card(root);label(audioBox,"语音播报");addVoiceToggle(audioBox);voiceStatusView=text("",13,MUTED);voiceStatusView.setPadding(0,dp(8),0,dp(8));audioBox.addView(voiceStatusView);updateVoiceStatus();action(audioBox,"语音设置与试听",this::showVoiceSettings,false);
         LinearLayout menus=card(root);label(menus,"更多服务");menu(menus,"APP版本与更新",this::checkAppUpdate);menu(menus,"设备诊断与连接检查",this::showDiagnostics);menu(menus,"管理员设置",this::openBaiduSettings);menu(menus,"景区入园统计",this::showStatistics);menu(menus,"本机核验记录",this::showLocalRecords);menu(menus,"相机权限管理",this::explainPermissions);menu(menus,"记录备份与恢复",this::showBackup);menu(menus,"卸载或清除数据前检查",this::showUninstallCheck);
         action(root,"平台连接设置",this::showPlatformSettings,false);action(root,"重新验证原账号",this::showLogin,false);

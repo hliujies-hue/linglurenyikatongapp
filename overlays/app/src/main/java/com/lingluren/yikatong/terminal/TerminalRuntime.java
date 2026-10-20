@@ -45,6 +45,32 @@ public final class TerminalRuntime {
         }catch(Exception e){if(done!=null)complete(done,e instanceof PlatformClient.ApiException&&((PlatformClient.ApiException)e).status==404?"当前平台尚未部署APP配置接口，请管理员先更新平台":"APP配置检查失败："+safe(e));}
     }
     private volatile boolean ready,hasSession,scanning,authorized;
+    private volatile boolean loginExpired;
+    private volatile String lastSyncError="";
+    public boolean loginExpired(){return loginExpired;}
+    public String currentUsername(){JSONObject s=session;return s==null?"":s.optString("username");}
+    private boolean markLoginExpired(Throwable e){
+        if(!(e instanceof PlatformClient.ApiException)||((PlatformClient.ApiException)e).status!=401)return false;
+        loginExpired=true;ready=false;platformSynced=false;pauseCamera();
+        lastSyncError="登录已失效，请重新验证当前账号；本地人员和待确认记录保留";
+        emit(lastSyncError);return true;
+    }
+    public synchronized void reauthenticate(String password,Done done){
+        if(signingIn){complete(done,"上一笔登录仍在处理中");return;}
+        signingIn=true;pauseCamera();ready=false;
+        actor.execute(()->{try{
+            if(session==null)throw new IllegalStateException("当前没有保留的账号，请返回登录页");
+            PlatformClient renewed=new PlatformClient(session.getString("origin"));
+            JSONObject reply=renewed.request("/api/terminal/login",new JSONObject().put("username",session.getString("username")).put("password",password));
+            String token=reply.getString("accessToken");
+            if(token.isEmpty())throw new IllegalStateException("平台未返回登录凭证");
+            store.updateAccessToken(session.getString("sessionId"),token);
+            session=store.active();renewed.token(token);client=renewed;
+            loginExpired=false;lastSyncError="";platformSynced=false;nextTick=0;syncFailures=0;
+            emit("账号验证成功，正在恢复平台同步；本地人员和记录保留");
+            complete(done,null);tick();
+        }catch(Exception e){complete(done,safe(e));}finally{signingIn=false;}});
+    }
     private volatile String algorithmStallReason="";
     private volatile long viewEpoch;
     private boolean modelFailed,restoreContinuationQueued;
@@ -95,7 +121,7 @@ public final class TerminalRuntime {
     public void diagnostics(Stats done){actor.execute(()->{try{
         JSONObject out=presence.diagnostics();
         out.put("deviceName",deviceName()).put("appConfigRevision",appConfig.optLong("revision")).put("appBlockedReason",appBlockedReason()).put("appVersion",TerminalProtocol.VERSION).put("authorized",authorized).put("hasSession",hasSession)
-            .put("sdkReady",libraryReady()).put("modelFailed",libraryFailed()).put("loading",engine.loading())
+            .put("loginExpired",loginExpired).put("lastSyncError",lastSyncError).put("sdkReady",libraryReady()).put("modelFailed",libraryFailed()).put("loading",engine.loading())
             .put("algorithmStalled",algorithms.stalled()).put("algorithmStallReason",algorithmStallReason)
             .put("rosterReady",rosterReady).put("ready",ready()).put("settingsOpen",settingsOpen).put("platformSynced",platformSynced)
             .put("localFaces",store.faces()).put("loadedFaces",loadedFaces).put("loadTotal",loadTotal).put("loadElapsed",loadElapsed)
@@ -109,7 +135,7 @@ public final class TerminalRuntime {
         out.put("sync",counts);main.post(()->done.done(out,null));
     }catch(Exception e){main.post(()->done.done(null,"设备诊断暂不可用，请重试"));}});}
     public boolean hasSession(){return hasSession;}
-    public boolean ready(){return !algorithms.stalled()&&appBlockedReason().isEmpty()&&TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
+    public boolean ready(){return !loginExpired&&!algorithms.stalled()&&appBlockedReason().isEmpty()&&TerminalSdkContract.canStart(ready,platformSynced,settingsOpen,pendingEvents,lastHeartbeat,SystemClock.elapsedRealtime());}
     public String overview(){return overview;}
     private volatile JSONObject uiProfile=new JSONObject();
     private volatile long loadedFaces,loadTotal,loadElapsed;
@@ -181,7 +207,7 @@ public final class TerminalRuntime {
             JSONObject binding=next.request("/api/terminal/bind",new JSONObject().put("protocolVersion",2).put("fingerprint",fingerprint).put("appVersion",TerminalProtocol.VERSION).put("libraryId",libraryId));
             if(!"SHARED".equals(binding.optString("libraryMode"))||!libraryId.equals(binding.optString("libraryId"))){throw new IllegalStateException("平台未确认共享人员库，请先更新平台");}
             binding.put("origin",origin).put("fingerprint",fingerprint).put("username",username).put("accessToken",info.getString("accessToken"));
-            store.bind(binding);session=store.active();hasSession=true;client=next;ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";pendingLogin=null;signingIn=false;presence.retry();emit("账号已登录，正在同步人员与记录");complete(job.done,null);tick();
+            store.bind(binding);session=store.active();hasSession=true;client=next;loginExpired=false;lastSyncError="";ready=false;pendingPeople=true;nextTick=0;syncFailures=0;platformSynced=false;rosterReady=false;lastHeartbeat=0;lastHeartbeatWall=0;uiProfile=new JSONObject();overview="账号："+username+"\n平台信息：等待同步";pendingLogin=null;signingIn=false;presence.retry();emit("账号已登录，正在同步人员与记录");complete(job.done,null);tick();
         }catch(Exception e){failLogin(job,safe(e));}
     }
     private void ensureSharedLibrary() throws Exception {
@@ -348,7 +374,7 @@ public final class TerminalRuntime {
         emit(stage);
     }
     private void tick(){
-        if(session==null||!authorized||settingsOpen||SystemClock.elapsedRealtime()<nextTick)return;
+        if(session==null||loginExpired||signingIn||!authorized||settingsOpen||SystemClock.elapsedRealtime()<nextTick)return;
         boolean failed=false;
         try {
             // Events can still drain even if the local algorithm cannot initialize.
@@ -363,15 +389,15 @@ public final class TerminalRuntime {
             if("PAUSING".equals(session.getString("state"))&&session.optBoolean("resetDone")){
                 syncStep("请求平台确认退出屏障");drain();finishDrain();return;
             }
-            if("ACTIVE".equals(session.optString("state")))ensureSharedLibrary();
-            if(!platformSynced||(!ready&&SystemClock.elapsedRealtime()-lastHeartbeat>=10000))heartbeat(false);
+            if("ACTIVE".equals(session.optString("state"))){syncStep("核对平台人员库绑定");ensureSharedLibrary();}
+            if(!platformSynced||(!ready&&SystemClock.elapsedRealtime()-lastHeartbeat>=10000)){syncStep("验证登录与获取业务心跳");heartbeat(false);}
             syncStep("初始化算法与加载本地特征");if(!prepare())return;presence.sdk("AUTHORIZED",engine.ready()?"READY":"ERROR",null);
             if("PAUSING".equals(session.getString("state")))drain();
             if(pendingPeople){syncStep("下载人员并确认回执");syncPeople();}
             if("DRAINING".equals(session.getString("state"))){finishDrain();return;}
             syncStep("获取平台核验条件");if(TerminalSyncSchedule.heartbeatDue(lastHeartbeat,SystemClock.elapsedRealtime(),pendingPeople,rosterReady,ready))heartbeat(true);
-            store.cleanup(System.currentTimeMillis());
-        }catch(Exception|LinkageError e){failed=true;ready=false;emit("未完成步骤："+syncStep+"\n原因："+safe(e)+"\n本机记录保留，自动重试；重试倒计时见设备诊断，暂不可通行");}
+            store.cleanup(System.currentTimeMillis());lastSyncError="";
+        }catch(Exception|LinkageError e){failed=true;ready=false;lastSyncError=safe(e);if(markLoginExpired(e))return;emit("未完成步骤："+syncStep+"\n原因："+safe(e)+"\n本机记录保留，自动重试；重试倒计时见设备诊断，暂不可通行");}
         finally{
             syncFailures=failed?Math.min(8,syncFailures+1):0;
             boolean work=session!=null&&(!rosterReady||pendingPeople||!"ACTIVE".equals(session.optString("state"))||pendingEvents>0);
@@ -380,7 +406,7 @@ public final class TerminalRuntime {
             if((loading||(work&&!failed))&&!restoreContinuationQueued){restoreContinuationQueued=true;actor.schedule(()->{restoreContinuationQueued=false;tick();},Math.max(1,nextTick-SystemClock.elapsedRealtime()),TimeUnit.MILLISECONDS);}
         }
     }
-    public void retry(){if(retryQueued.compareAndSet(false,true)){emit("正在检查平台变更与待确认记录；本地人员库保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}
+    public void retry(){if(loginExpired){emit("登录已失效，请点击重新验证当前账号；重复同步不能恢复登录");return;}if(retryQueued.compareAndSet(false,true)){emit("正在检查平台变更与待确认记录；本地人员库保留");actor.execute(()->{try{nextTick=0;tick();}finally{retryQueued.set(false);}});}}
     public void exit(Done done){
         pauseCamera();ready=false;
         actor.execute(()->{try{

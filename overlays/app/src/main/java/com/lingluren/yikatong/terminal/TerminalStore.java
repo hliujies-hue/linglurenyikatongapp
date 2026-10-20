@@ -135,6 +135,18 @@ public final class TerminalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
+    public void updateAccessToken(String sessionId,String token) throws Exception {
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try {
+            JSONObject current=active();
+            if(current==null||!sessionId.equals(current.getString("sessionId")))throw new IllegalStateException("账号会话已变更，请重新打开验证窗口");
+            // Only replace the encrypted bearer credential. Never bind, reset or replace the journal.
+            current.put("accessToken",token);
+            ContentValues values=new ContentValues();values.put("snapshot",seal(current.toString(),"snapshot"));
+            if(db.update("sessions",values,"id=?",new String[]{sessionId})!=1)throw new IllegalStateException("登录凭证保存失败");
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
     public void state(String id,String state) { ContentValues v=new ContentValues();v.put("state",state);if("RELEASED".equals(state))v.putNull("active_slot");getWritableDatabase().update("sessions",v,"id=?",new String[]{id}); }
     public void resetDone(String id) { ContentValues v=new ContentValues();v.put("reset_done",1);getWritableDatabase().update("sessions",v,"id=?",new String[]{id}); }
     public JSONObject event(long userId,String failure) throws Exception {

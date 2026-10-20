@@ -572,3 +572,14 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 诊断：启动UI之前即落盘phase；清单/特征校验、授权、各模型、载库和就绪阶段可追踪；脚本先判instrumentation失败，避免report缺失掩盖原始错误；自动保存启动日志与退出原因。整机原始日志不入Git。
 - 验证：本批修改Java/PowerShell通过tree-sitter语法解析；未在本地进行Android类型检查或Windows执行，未真机复测。APP版本137不变，仅测试启动及诊断修改；不重新提取图片、不写业务库、不启用CI。
 - 提交依据：基线dd31257d3c9458308a482369f53805b99147e26c，本节与修复同提交。剩余：允许本APP后台弹出界面后验证30秒内打开、107228条加载、本人录入匹配及退出恢复6人业务库。
+
+
+## SESSION-RECOVERY-20261020：登录失效恢复与十万库相机实测
+
+- 依据：用户截图明确“登录已失效”；业务心跳尚未成功，普通APP初始化被阻塞。用户确认同步退出并重新登录后核验恢复。
+- 已实现：401后暂停无效自动同步并停止核验；人员同步/维护页新增“重新验证当前账号”。只使用保留会话的平台及账号进行密码验证，只替换加密快照中的accessToken；不重新bind、不修改会话代次/状态/序号/回执/人脸库，不清除授权。错误密码保留原会话，其他账号切换仍必须完成同步退出。
+- 已实现：诊断增加loginExpired、lastSyncError；同步阶段明确区分记录上传、绑定检查与业务心跳；失效时加载区域提示重新验证。APP与协议诊断版本统一0.7.19-session-recovery（138），测试脚本兼容138。
+- 入口：TerminalRuntime.reauthenticate/markLoginExpired、TerminalStore.updateAccessToken、TerminalEntryActivity.showReauthentication。
+- 实测归档：docs/testing/manual-camera-107228-20261020.json；107228条合成特征，101次相机查询，60次匹配本人、41次未匹配、0次匹配合成人脸；P95检索9.864479ms、帧处理至结果68.643125ms，SESSION_ENDED/ACTIVITY_LEFT、清理返回0。用户确认普通APP重新登录后恢复；并非20万真实人员准确率或端到端验收通过。
+- 验证：本次Java/PowerShell语法解析与更新范围检查；当前环境无Android SDK/vendor完整构建环境，未执行APK编译、Lint或新恢复入口真机验收。
+- 待验收：401后页面提示、错误密码不丢数据、正确密码恢复心跳与原6人核验、有待确认记录时续传、PAUSING/DRAINING保留状态；403及网络故障不误报登录失效。
