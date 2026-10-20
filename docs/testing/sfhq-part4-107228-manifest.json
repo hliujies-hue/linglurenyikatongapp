@@ -1,0 +1,15 @@
+{
+  "sdkVersion": "8.5",
+  "featureType": "LIVE_PHOTO",
+  "count": 107228,
+  "synthetic": true,
+  "genuineDistinctIdentities": false,
+  "sha256": "d954606c7713416e15cc12a6c88f7845a49ffd291f0292782b0aa0752f5d8f35",
+  "corpusSha256": "26c5188f4dd6ccbfd439723e952994c2d1931211fa3674130c234f9657078d56",
+  "extraction": "TerminalFaceEngine.upsert",
+  "sourcePhotos": 125754,
+  "rejected": 18526,
+  "withinBatchDuplicates": 0,
+  "crossBatchDuplicates": 0,
+  "runId": "bulk-4a8b6d419b2f4b56"
+}

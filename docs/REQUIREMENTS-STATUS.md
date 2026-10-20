@@ -553,3 +553,14 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 新增批量脚本PowerShell语法树检查通过；Java改动语法检查通过。当前环境无Windows PowerShell/Android SDK，未完成实际Windows执行或本轮手机测试，不标记大库PASS。中断后保留WorkFolder，重复原命令续跑；建立WorkFolder/STOP会在下一批前停止，删除STOP后续跑。每批运行期间请不要使用核验功能。源图片读取校验也需要时间。用户要求手工摄像头体验的可视化测试模式尚未开发；业务原6人恢复仍待确认。
 
 已归档用户上传的1000条真机报告 `docs/testing/native-scale-1000-20261019.json`：1077条数据中加载1000条，加载32ms，1000次self-query全部匹配，P50/P95/P99为0.059687/0.123334/0.19151ms，采样PSS128164KiB，清理码0。不能外推125754或20万。
+
+
+
+## MANUAL-SCALE-20261020：107228条结果归档及可视化摄像头测试
+- 用户最新范围：只用125754张SFHQ原图提取结果，不再追求20万，不混旧700/550样本。
+- 现场证据：用户提供完整report.json/manifest；归档docs/testing/native-scale-107228-20261019.json及sfhq-part4-107228-manifest.json。有效107228，拒绝18526，批内/跨批精确特征重复0。M2011K2C Android14加载2692ms，1000次同特征抽样自查询1000命中；P50/P95/P99=4.652604/4.986667/7.322083ms，采样PSS217970KiB，原生清理0。索引自查询已通过，不是20万、真人准确性或相机/平台全链路验收。
+- 新需求实现：私有TerminalManualTestActivity为签名instrumentation提供测试UI，普通启动立即退出；TerminalManualScaleTest直接初始化厂商授权、检测/质量/活体/特征模型及内存检索库，不打开业务Store/Runtime。加载同一features.bin，允许本人同意后现场录入一名测试者，特征仅RAM、不保存照片、不上传平台；移除/替换与合成样本匹配分别提示。显示纯检索与相机帧回调至结果耗时，不把检索毫秒数当完整通行耗时。
+- 脚本入口：scripts/Test-ManualCamera.ps1；只传已有features.bin及manifest，不重跑图片提取。APP版本137/0.7.18-manual-test，首次原签名覆盖安装APP与测试APK，严格禁止卸载/降级。旧提取/索引脚本兼容136、137。结果桌面Yikatong-ManualScale，SESSION_ENDED不等于准确性或业务PASS。30分钟/低内存/STOP检查点限制，退出页面结束并清理RAM，脚本恢复正常APP；native卡死或断线不能保证即时清理。
+- 验证：2份新增Java及5份新增/修改PowerShell经tree-sitter语法解析无错误；人工审查专用路径、版本/摘要/长度校验、无业务库写入和模型初始化与生产API一致。无完整厂商Demo、Android SDK、Windows环境，未做类型检查、APK编译、Lint或真机测试；不能以原107228自查询PASS替代本批验证。
+- 剩余：用户构建并检查测试页/录入/移除/前后摄/退出与报告；原6人业务恢复、真实人员识别准确性、SQLite冷启动、长期温升及完整平台链路仍待验收。
+- 提交依据：本节与实现同一提交，基线8585548bee304adb9c68b77327c8bb8b3aab7719；未启用CI、自动打包或计划任务。

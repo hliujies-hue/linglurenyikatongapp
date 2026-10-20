@@ -150,6 +150,17 @@ $metadata=$xml.CreateElement('meta-data')
 [void]$metadata.SetAttribute('name',$android,'android.support.FILE_PROVIDER_PATHS')
 [void]$metadata.SetAttribute('resource',$android,'@xml/terminal_update_paths')
 [void]$updateProvider.AppendChild($metadata)
+# Private shell for signed instrumentation only; no launcher and no intent/file enabling switch.
+$manual=$null
+foreach($screen in @($app.SelectNodes('activity'))) {
+ if($screen.GetAttribute('name',$android) -eq 'com.lingluren.yikatong.terminal.TerminalManualTestActivity') { $manual=$screen;break }
+}
+if($null -eq $manual) { $manual=$xml.CreateElement('activity');[void]$app.AppendChild($manual) }
+[void]$manual.SetAttribute('name',$android,'com.lingluren.yikatong.terminal.TerminalManualTestActivity')
+[void]$manual.SetAttribute('exported',$android,'false')
+[void]$manual.SetAttribute('screenOrientation',$android,'portrait')
+[void]$manual.SetAttribute('theme',$android,'@android:style/Theme.Material.NoActionBar')
+[void]$manual.SetAttribute('excludeFromRecents',$android,'true')
 $xml.Save($path)
 Write-Host 'Demo overlay applied: real online activation, guarded terminal entry, private Demo screens.'
 Write-Host 'Session V2: SDK face sync, durable events, receipt confirmation and guarded account exit. Validate on the real phone before operational use.'
@@ -182,3 +193,4 @@ Write-Host 'Administrator settings: online password gate, private Demo screens, 
 
 # Optional export from the hidden platform APP maintenance page.
 & (Join-Path $PSScriptRoot 'Apply-AppBranding.ps1') -Root $root -Work $work
+

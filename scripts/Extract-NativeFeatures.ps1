@@ -24,7 +24,7 @@ function Invoke-Adb([string[]]$Arguments) {
 }
 $package='com.lingluren.yikatong.terminal'
 $installed=(Invoke-Adb @('shell','dumpsys','package',$package)) -join "`n"
-if($installed -notmatch 'versionCode=136\b') { throw 'Verified original APP versionCode136 required; no install/downgrade of production app is performed' }
+if($installed -notmatch 'versionCode=(136|137)\b') { throw 'Original APP versionCode136 or 137 required; no install/downgrade of production app is performed' }
 $remote='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test-v2/feature-extract'
 if($DatasetId -ne 'legacy') { $remote="/sdcard/Android/data/$package/files/ykt-test-v2/feature-batches/$DatasetId" }
 $apk=Join-Path $root 'demo-work\app\build\outputs\apk\androidTest\release\app-release-androidTest.apk'
@@ -63,3 +63,4 @@ try {
  & $adb -s $Serial shell am start -W -n "$package/$package.TerminalEntryActivity"
  Write-Host "Output: $folder. Images/checkpoint remain in the dedicated ykt-test directory for resume. Verify original 6-person business data after restart."
 }
+

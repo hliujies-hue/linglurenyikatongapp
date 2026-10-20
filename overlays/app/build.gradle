@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "com.lingluren.yikatong.terminal.TerminalScaleRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 136
-        versionName "0.7.17-device-info"
+        versionCode 137
+        versionName "0.7.18-manual-test"
 
         ndk {
             moduleName "facesdk"
@@ -91,3 +91,4 @@ gradle.taskGraph.whenReady { graph ->
   throw new GradleException('Release signing.properties missing; do not use Demo sample signing.')
  }
 }
+
