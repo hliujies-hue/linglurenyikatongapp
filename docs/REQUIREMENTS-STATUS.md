@@ -605,3 +605,13 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 修复：API29及以上使用android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE；低版本保留系统默认换行策略；API23及以上仍禁用自动连字符。未关闭Lint、未添加忽略规则、未更改SDK或签名。
 - 版本保持0.7.20-session-stability/139，本次修正该版本构建入口；代码与本记录同提交，基线77e5a430a476ecc88a992a8996e1a45cea0603fc。平台无需更新。
 - 验证：已核对用户完整构建日志、修复前源码及API分支；本环境没有完整Android构建环境，修复后APK/Lint/真机未验证，须原电脑按固定提交重新运行Export-Apk.ps1与Test-Device.ps1 -Install。禁止用-DeferTests绕过本问题。
+
+
+## PHOTO-REJECT-20261023：拒绝照片持久化，换照后才重传
+
+- 最新规则：算法明确拒绝后，同版本照片不再下载或提取；断网补回执、重新登录、重启及人员库重建不能触发重复传图。后台换照片产生新photoRevision才恢复；临时网络/SDK故障维持原重试，撤权删除继续执行。
+- 实现：TerminalRuntime.photoRevision/rejectPhoto/syncPeopleBatch；TerminalStore.rejectedPhoto/rejectPhoto使用现有加密metadata，按平台、人员和照片版本隔离。拒绝先落盘，再移除旧特征；存储或清理失败只回报未完成，不伪造成功回执。平台同步返回照片版本并拦截自动及手动重新下发。
+- 版本：0.7.21-photo-rejection，versionCode140；Verify-Release和四个手工测试脚本同步版本。保留df0e1feefb79373618750fc9f444112e7bdce356中的Lint修复、原签名、SDK授权和待确认记录。
+- 提交依据：APP基线df0e1feefb79373618750fc9f444112e7bdce356，平台基线e11a15fee7c69b6a59c4b26f098d4c09a97151b1；实现和本记录同提交。
+- 已验证：test_photo_rejection.py编译执行生产同步方法，覆盖回执丢失、同图新任务/会话、换照、撤权、网络重试、持久化/清理失败、批次继续和永久来源失败。既有14组主机Java测试、会话恢复和模拟相机测试通过。
+- 边界：测试替身不代替真机。新增SQLite重启/隔离/重建仪器用例尚未运行；APK、Lint、签名与安装未执行。先升级平台再升级APP；旧平台兼容仅能按targetHash去重，无法完整保证跨授权代次不重传。详见docs/DELIVERY-0.7.21.md。

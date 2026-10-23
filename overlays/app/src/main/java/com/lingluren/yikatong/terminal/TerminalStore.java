@@ -188,6 +188,23 @@ public final class TerminalStore extends SQLiteOpenHelper {
             metadata("last_cleanup",Long.toString(now),true);db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
+    // Durable negative result; scoped to platform, person and immutable photo revision.
+    // Keep it across logout, feature reset and receipt retries. A new photo has a new key.
+    private String rejectedPhotoKey(String origin,long user,String revision) throws Exception {
+        String identity=origin+"\n"+user+"\n"+revision;
+        byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        StringBuilder key=new StringBuilder("photo_rejected:");
+        for(byte b:digest)key.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+        return key.toString();
+    }
+    public String rejectedPhoto(String origin,long user,String revision) throws Exception {
+        return metadata(rejectedPhotoKey(origin,user,revision),"");
+    }
+    public void rejectPhoto(String origin,long user,String revision,String reason) throws Exception {
+        String name=rejectedPhotoKey(origin,user,revision);
+        ContentValues values=new ContentValues();values.put("name",name);values.put("value",seal(reason,"metadata:"+name));
+        if(getWritableDatabase().insertWithOnConflict("metadata",null,values,SQLiteDatabase.CONFLICT_REPLACE)==-1)throw new IllegalStateException("无法保存照片拒绝结果，请检查本机存储");
+    }
     public String metadata(String name,String fallback){try(Cursor c=getReadableDatabase().rawQuery("SELECT value FROM metadata WHERE name=?",new String[]{name})){return c.moveToFirst()?crypto.open(c.getString(0),"metadata:"+name):fallback;}}
     public void metadata(String name,String value,boolean write){ContentValues v=new ContentValues();v.put("name",name);v.put("value",seal(value,"metadata:"+name));getWritableDatabase().insertWithOnConflict("metadata",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
     public void clearFaces(){getWritableDatabase().delete("faces",null,null);}

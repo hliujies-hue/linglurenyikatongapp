@@ -259,6 +259,20 @@ public final class TerminalRuntime {
         long started=SystemClock.elapsedRealtime();
         try{syncPeopleBatch();}finally{lastPersonnelBatchMs=SystemClock.elapsedRealtime()-started;}
     }
+    private String photoRevision(JSONObject task) throws Exception {
+        String revision=task.optString("photoRevision","");
+        // Older platforms only identify a target generation. Upgrade platform first.
+        return revision.isEmpty()?"target:"+task.getString("targetHash"):"photo:"+revision;
+    }
+    private void rejectPhoto(JSONObject task,JSONObject ack,String reason) throws Exception {
+        long user=task.getLong("userId");
+        // Save before cleanup: even if cleanup fails, the next attempt must not download again.
+        store.rejectPhoto(session.getString("origin"),user,photoRevision(task),reason);
+        algorithms.call(()->{engine.delete(store,user);return null;});
+        lastPhotoIssue=task.optString("personName","待核对人员")+"："+reason;
+        ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
+        emit("照片待处理："+lastPhotoIssue+"\n已停止重复传输，继续同步其他人员；更换照片后自动同步");
+    }
     private void syncPeopleBatch() throws Exception {
         JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session).put("pageSize",16)).getJSONArray("items");
         if(tasks.length()>0)ready=false;else pendingPeople=false;
@@ -272,6 +286,10 @@ public final class TerminalRuntime {
             try {
                 String op=task.getString("operation");long user=task.getLong("userId");
                 if("UPSERT".equals(op)){
+                    String rejected=store.rejectedPhoto(session.getString("origin"),user,photoRevision(task));
+                    if(!rejected.isEmpty()){
+                        rejectPhoto(task,ack,rejected);receipts.put(ack);continue;
+                    }
                     String hash=task.getString("targetHash");
                     if(!algorithms.call(()->engine.reuse(store,user,hash))){
                         byte[] photo=client.photo(task.getString("photoUrl"));
@@ -282,23 +300,14 @@ public final class TerminalRuntime {
                 else if(!"DISCARD".equals(op))throw new IllegalStateException("未知人员同步任务");
                 ack.put("applied",true);
             }catch(TerminalFaceEngine.PhotoRejectedException e){
-                // Remove any previous template before recording a rejected photo.
-                // A rejection is a completed failure receipt, never a successful face grant.
-                algorithms.call(()->{engine.delete(store,task.getLong("userId"));return null;});
-                String person=task.optString("personName","待核对人员");
-                lastPhotoIssue=person+"："+safe(e);
-                ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
-                receipts.put(ack);
-                emit("照片待处理："+lastPhotoIssue+"\n该人员不能刷脸，继续同步其他人员；后台更换照片后重试");
-                continue;
+                try{rejectPhoto(task,ack,safe(e));}
+                catch(Exception removal){ack.put("applied",false).put("error","照片拒绝结果或旧特征清理尚未完成："+safe(removal));receipts.put(ack);failure=removal;break;}
+                receipts.put(ack);continue;
             }catch(PlatformClient.PhotoException e){
                 if(e.rejected){
-                    // A permanently unusable source must never leave an older local face active.
-                    try{algorithms.call(()->{engine.delete(store,task.getLong("userId"));return null;});}
-                    catch(Exception removal){ack.put("applied",false).put("error","照片无效且旧特征尚未安全移除："+safe(removal));receipts.put(ack);failure=removal;break;}
-                    lastPhotoIssue=task.optString("personName","待核对人员")+"："+safe(e);
-                    ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
-                    receipts.put(ack);emit("照片待处理："+lastPhotoIssue+"\n本机旧特征已移除，继续同步其他人员；后台更换照片后重试");continue;
+                    try{rejectPhoto(task,ack,safe(e));}
+                    catch(Exception removal){ack.put("applied",false).put("error","照片拒绝结果或旧特征清理尚未完成："+safe(removal));receipts.put(ack);failure=removal;break;}
+                    receipts.put(ack);continue;
                 }
                 ack.put("applied",false).put("error",safe(e));receipts.put(ack);if(failure==null)failure=e;
                 emit("人员照片暂未下载："+task.optString("personName","待核对人员")+"；"+safe(e)+"\n本项保留失败回执，继续本批其他任务，未达到就绪条件前不放行");continue;

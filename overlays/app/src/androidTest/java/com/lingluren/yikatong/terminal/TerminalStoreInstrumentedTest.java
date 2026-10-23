@@ -10,6 +10,16 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
  private JSONObject session(String id) throws Exception {return new JSONObject().put("protocolVersion",2).put("sessionId",id).put("sessionToken",repeat("b",64)).put("generation",1).put("fingerprint","journal-test-phone-1").put("state","ACTIVE").put("resetRequired",true);}
  private static String repeat(String s,int n){StringBuilder b=new StringBuilder();while(n-->0)b.append(s);return b.toString();}
  private JSONObject receipt(JSONObject event) throws Exception{return new JSONObject().put("persisted",true).put("eventId",event.getString("eventId")).put("sequence",event.getLong("sequence")).put("receipt",repeat("c",48)).put("result","PASS").put("open",true).put("duplicate",false);}
+ public void testPhotoRejectionSurvivesRestartAndLibraryReset() throws Exception {
+  store.libraryId("https://one.test");store.rejectPhoto("https://one.test",7,"photo:v1","no face");
+  store.close();store=new TerminalStore(context,name);
+  assertEquals("no face",store.rejectedPhoto("https://one.test",7,"photo:v1"));
+  assertEquals("",store.rejectedPhoto("https://one.test",7,"photo:v2"));
+  assertEquals("",store.rejectedPhoto("https://two.test",7,"photo:v1"));
+  assertEquals("",store.rejectedPhoto("https://one.test",8,"photo:v1"));
+  store.clearFaces();store.switchLibrary("https://two.test");store.switchLibrary("https://one.test");
+  assertEquals("no face",store.rejectedPhoto("https://one.test",7,"photo:v1"));
+ }
  public void testReauthenticationPreservesJournalFeaturesAndDrainState() throws Exception {
   String id=repeat("a",48);store.bind(session(id).put("username","staff").put("origin","https://example.test").put("accessToken","old"));
   store.resetDone(id);store.saveFace(7,"original-hash",new byte[512]);JSONObject event=store.event(7,"NETWORK_UNAVAILABLE");
