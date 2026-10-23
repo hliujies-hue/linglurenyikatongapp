@@ -705,3 +705,14 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 保留：API23分版本主题、AppCompat依赖、诊断返回、照片失败后台回执及换照片重试、缓存安装包/断点续传、单点提示修复和后台取消按查询结果处理。
 - 版本：0.7.28-ui-recovery / 147，覆盖升级，不卸载、不降级、不清除账号/授权/记录。基线 f2e1b297f7be75d4d7d194ea04f456437ef23305；服务器无需更新。
 - 验证范围：修改后的共用组件使用实际 AppCompat/Core/Android 类库编译；生产诊断返回回归。完整 lintRelease、APK及Android16真机点击尚未验收，不宣称所有无响应问题已定位或已解决。
+
+
+## APP-RECORD-FILTERS-20261023 — 核验记录筛选及手机顶部
+- 用户反馈：核验记录筛选无法使用，顶部仍未兼容；基线564191b5441fac5ac0fcaa97d4b26a2324eb7eb6。
+- 已查明：AppCompatSpinner.MODE_DIALOG内部创建AppCompat AlertDialog，原调用却传入系统Theme.Material弹窗主题；本次改用独立Theme.AppCompat.Light.Dialog.Alert及AppCompat ContextThemeWrapper，保留其他系统弹窗主题。
+- 已查明：结果/状态/景区没有选择即查询；日期快捷按钮和键盘查询调用禁用中的查询按钮会被忽略。本次选择后自动查询，查询中暂存最新条件、完成后应用；初始化回调及景区列表填充不触发重复查询；查询按钮显示“查询中”，扩大按钮宽度及日期点击高度。
+- 链路核对：PlatformClient传递from/to/result/receipt/search/scenicId/page；服务端TerminalRecords支持全部对应结果/回执类型，限定授权景区，姓名精确匹配，无手机号/证件号查询。分页继续使用已应用筛选，改条件重置第1页，旧响应由请求序号隔离。
+- 顶部：状态栏和头部共用一个背景层，移除两次独立缩放绘图；内容通过系统insets和挖孔安全高度避让，背景延伸至状态栏。保留底部手势区避让，不增加固定提示空白。
+- 版本0.7.29-record-filters /148；源码版本检查与安装测试脚本同步。
+- 验证通过：生产筛选回调测试（全部结果/状态、景区、初始回调、加载中改条件、无效位置）、生产诊断返回测试、主题XML解析、服务端TestTerminalRecordFiltersAndMask。
+- 未验收：完整APK/lintRelease、真实数据库组合筛选和Android16挖孔/键盘/滚动/点击视觉验收。本环境无厂商完整构建及连接真机，不能以回调测试代替真机验收。没有改动服务端判定或权限，无需部署服务器。

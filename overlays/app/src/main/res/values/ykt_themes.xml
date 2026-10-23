@@ -19,4 +19,10 @@
         <item name="android:windowMinWidthMinor">88%</item>
         <item name="android:backgroundDimAmount">0.35</item>
     </style>
+    <style name="YktChoiceTheme" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="colorAccent">#247BFA</item>
+        <item name="android:textColorPrimary">#20334F</item>
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">88%</item>
+    </style>
 </resources>

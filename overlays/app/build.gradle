@@ -14,8 +14,8 @@ android {
         testInstrumentationRunner "com.lingluren.yikatong.terminal.TerminalScaleRunner"
         minSdkVersion 21
         targetSdkVersion 31
-        versionCode 147
-        versionName "0.7.28-ui-recovery"
+        versionCode 148
+        versionName "0.7.29-record-filters"
 
         ndk {
             moduleName "facesdk"
