@@ -39,7 +39,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private TerminalRuntime runtime;
     private TextView brandHeading,brandSubtitle,brandSupport,appNotice,deviceNameView;
-    private ImageView brandIcon;
+    private ImageView brandIcon,brandDevice;
     private LinearLayout brandBanner;
     private boolean loginHeader;
     private TerminalBrandImages brandImages;
@@ -52,7 +52,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         Runnable retry;
         BrandSlot(boolean icon){this.icon=icon;}
     }
-    private final BrandSlot iconSlot=new BrandSlot(true),backgroundSlot=new BrandSlot(false);
+    private final BrandSlot iconSlot=new BrandSlot(true),deviceSlot=new BrandSlot(true),backgroundSlot=new BrandSlot(false);
     private void applySupportConfig(){
         if(brandSupport==null)return;
         JSONObject config=runtime.appConfig();
@@ -75,6 +75,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         try{if(!c.optString("latestVersion").isEmpty()&&TerminalAppPolicy.older(TerminalProtocol.VERSION,c.optString("latestVersion")))notice+=(notice.isEmpty()?"":"\n")+"发现新版本 "+c.optString("latestVersion")+"，点击查看更新";}catch(Exception ignored){}
         if(appNotice!=null){appNotice.setText(notice);appNotice.setVisibility(notice.isEmpty()?android.view.View.GONE:android.view.View.VISIBLE);}
         if(brandIcon!=null)requestBrandImage(iconSlot,c.optString("iconUrl"));
+        if(brandDevice!=null)requestBrandImage(deviceSlot,c.optString("deviceImageUrl"));
         if(brandBanner!=null)requestBrandImage(backgroundSlot,c.optString("backgroundUrl"));
     }
     private void cancelBrandImage(BrandSlot slot){
@@ -84,11 +85,11 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         slot.loading=false;
     }
     private void resetBrandImages(){
-        for(BrandSlot slot:new BrandSlot[]{iconSlot,backgroundSlot}){cancelBrandImage(slot);slot.requested="";slot.displayed="";slot.attempts=0;}
+        for(BrandSlot slot:new BrandSlot[]{iconSlot,deviceSlot,backgroundSlot}){cancelBrandImage(slot);slot.requested="";slot.displayed="";slot.attempts=0;}
         if(brandImages!=null)brandImages.cancelQueued();
     }
     private void retryBrandImages(){
-        for(BrandSlot slot:new BrandSlot[]{iconSlot,backgroundSlot}){
+        for(BrandSlot slot:new BrandSlot[]{iconSlot,deviceSlot,backgroundSlot}){
             if(slot.loading||slot.requested.isEmpty()||slot.requested.equals(slot.displayed))continue;
             cancelBrandImage(slot);slot.attempts=0;loadBrandImage(slot);
         }
@@ -99,7 +100,8 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             // Keep the previously displayed valid image until the replacement is decoded.
             if(url.isEmpty()){
                 slot.displayed="";
-                if(slot.icon&&brandIcon!=null){brandIcon.setImageDrawable(new TerminalMarkDrawable());brandIcon.setVisibility(android.view.View.VISIBLE);}
+                if(slot==deviceSlot){if(brandDevice!=null)defaultDeviceImage(brandDevice);}
+                else if(slot.icon&&brandIcon!=null){brandIcon.setImageDrawable(new TerminalMarkDrawable());brandIcon.setVisibility(android.view.View.VISIBLE);}
                 else if(brandBanner!=null)brandBanner.setBackground(artwork());
                 return;
             }
@@ -108,7 +110,8 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void applyBrandImage(BrandSlot slot,android.graphics.Bitmap bitmap){
         slot.displayed=slot.requested;slot.attempts=0;
-        if(slot.icon&&brandIcon!=null){brandIcon.setImageBitmap(bitmap);brandIcon.setVisibility(android.view.View.VISIBLE);}
+        if(slot==deviceSlot){if(brandDevice!=null)brandDevice.setImageBitmap(bitmap);}
+        else if(slot.icon&&brandIcon!=null){brandIcon.setImageBitmap(bitmap);brandIcon.setVisibility(android.view.View.VISIBLE);}
         else if(brandBanner!=null)brandBanner.setBackground(new TerminalLandscapeDrawable(bitmap,loginHeader));
     }
     private void loadBrandImage(BrandSlot slot){
@@ -138,16 +141,22 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         }else Toast.makeText(this,"品牌"+(slot.icon?"图标":"背景")+"连续4次加载失败："+detail+"。网络恢复后点击顶部品牌区域重试。",Toast.LENGTH_LONG).show();
     }
     private TerminalAppUpdater appUpdater;
+    private boolean checkingUpdate;
     private void showAppUpdate(){
-        JSONObject c=runtime.appConfig();String latest=c.optString("latestVersion");
-        android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(new android.view.ContextThemeWrapper(this, dialogTheme())).setTitle("APP版本与更新")
-            .setMessage("当前版本："+TerminalProtocol.VERSION+"\n平台最新版本："+(latest.isEmpty()?"未发布":latest)+"\n"+runtime.appBlockedReason()+"\n"+c.optString("updateNotes")+"\n更新将在应用内下载并校验，随后由系统确认覆盖安装。")
-            .setNegativeButton("关闭",null);
-        if(!c.optString("updateUrl").isEmpty())dialog.setPositiveButton("下载并更新",(d,w)->{
-            if(appUpdater==null)appUpdater=new TerminalAppUpdater(this);
-            appUpdater.start(c);
+        if(checkingUpdate)return;checkingUpdate=true;
+        JSONObject config=runtime.appConfig();final int generation=pageVersion;
+        if(appUpdater==null)appUpdater=new TerminalAppUpdater(this);
+        appUpdater.inspectDownloaded(config,available->{
+            checkingUpdate=false;
+            if(destroyed||generation!=pageVersion)return;
+            String latest=config.optString("latestVersion");boolean newer=false;try{newer=TerminalAppPolicy.older(TerminalProtocol.VERSION,latest);}catch(Exception ignored){}
+            android.app.AlertDialog.Builder dialog=new android.app.AlertDialog.Builder(new android.view.ContextThemeWrapper(this,dialogTheme())).setTitle("APP版本与更新")
+                .setMessage("当前版本："+TerminalProtocol.VERSION+"\n最新版本："+(latest.isEmpty()?"未发布":latest)+"\n"+config.optString("updateNotes")+"\n"+(available?"安装包已下载，可直接安装。":newer?"下载完成后可安装更新。":latest.isEmpty()?"平台尚未发布更新。":"当前已是最新版本。"))
+                .setNegativeButton("关闭",null);
+            if(available)dialog.setPositiveButton("安装更新",(d,w)->appUpdater.installReady());
+            else if(newer&&!config.optString("updateUrl").isEmpty())dialog.setPositiveButton("下载并更新",(d,w)->appUpdater.start(config));
+            dialog.show();
         });
-        dialog.show();
     }
     private void checkAppUpdate(){runtime.checkAppConfig(error->{if(destroyed)return;if(error!=null){new android.app.AlertDialog.Builder(new android.view.ContextThemeWrapper(this, dialogTheme())).setTitle("检查更新失败").setMessage(error).setPositiveButton("知道了",null).show();return;}applyAppConfig();showAppUpdate();});}
 
@@ -296,8 +305,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         android.view.View line=new android.view.View(this);line.setBackgroundColor(0xffedf2f8);box.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
     }
     private TextView miniRow(LinearLayout box,String key,String value){LinearLayout row=new LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(0,dp(4),0,dp(4));TextView k=text(key,12,MUTED);row.addView(k,new LinearLayout.LayoutParams(dp(64),-2));TextView v=text(value,13,INK);row.addView(v,new LinearLayout.LayoutParams(0,-2,1));box.addView(row);return v;}
+    private void defaultDeviceImage(ImageView device){try(java.io.InputStream in=getAssets().open("terminal-device-20261023.png")){android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=8;device.setImageBitmap(android.graphics.BitmapFactory.decodeStream(in,null,options));}catch(Exception ignored){device.setImageDrawable(new TerminalMarkDrawable());}}
     private LinearLayout deviceSummary(LinearLayout root,boolean details){
-        LinearLayout card=card(root),line=new LinearLayout(this);line.setGravity(android.view.Gravity.TOP);ImageView device=new ImageView(this);device.setScaleType(ImageView.ScaleType.FIT_CENTER);device.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);try(java.io.InputStream in=getAssets().open("terminal-device-20261023.png")){android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inSampleSize=8;device.setImageBitmap(android.graphics.BitmapFactory.decodeStream(in,null,options));}catch(Exception ignored){device.setImageDrawable(new TerminalMarkDrawable());}device.setBackground(background(0xfff0f3f8,0));line.addView(device,new LinearLayout.LayoutParams(dp(72),dp(88)));
+        LinearLayout card=card(root),line=new LinearLayout(this);line.setGravity(android.view.Gravity.TOP);ImageView device=new ImageView(this);device.setScaleType(ImageView.ScaleType.FIT_CENTER);device.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);brandDevice=device;defaultDeviceImage(device);requestBrandImage(deviceSlot,runtime.appConfig().optString("deviceImageUrl"));device.setBackground(background(0xfff0f3f8,0));line.addView(device,new LinearLayout.LayoutParams(dp(72),dp(88)));
         LinearLayout copy=new LinearLayout(this);copy.setOrientation(LinearLayout.VERTICAL);copy.setPadding(dp(14),0,0,0);line.addView(copy,new LinearLayout.LayoutParams(0,-2,1));deviceNameView=text(runtime.deviceName(),17,INK);deviceNameView.setTypeface(null,android.graphics.Typeface.BOLD);copy.addView(deviceNameView);JSONObject profile=runtime.uiProfile();
         if(details){TextView authorization=text(authorized?"已授权":"未授权",11,authorized?0xff00b879:0xfff34c54);authorization.setPadding(0,dp(6),0,dp(3));copy.addView(authorization);maintenanceConnection=miniRow(copy,"平台通信",connectionLabel());miniRow(copy,"当前账号",profile.optString("accountName","等待同步"));miniRow(copy,"所属景区",profile.optString("scenicName","等待同步"));miniRow(copy,"识别模式","RGB活体");}
         else{TextView licensed=text(authorized?"✓  设备已授权":"设备授权待恢复",14,authorized?0xff00b879:MUTED);licensed.setPadding(0,dp(12),0,dp(6));copy.addView(licensed);copy.addView(text("⌁  "+connectionLabel()+"  ›",13,BLUE));card.setOnClickListener(v->showDiagnostics());}
@@ -336,7 +346,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         if(refreshHomeStatistics!=null){main.removeCallbacks(refreshHomeStatistics);refreshHomeStatistics=null;}
         if(refreshDiagnostics!=null){main.removeCallbacks(refreshDiagnostics);refreshDiagnostics=null;}
         resetBrandImages();if(scanStartupTimeout!=null){main.removeCallbacks(scanStartupTimeout);scanStartupTimeout=null;}scanState=ScanState.PAUSED;startButton=null;
-        brandHeading=null;brandSubtitle=null;brandSupport=null;appNotice=null;deviceNameView=null;brandIcon=null;brandBanner=null;voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
+        brandHeading=null;brandSubtitle=null;brandSupport=null;appNotice=null;deviceNameView=null;brandIcon=null;brandDevice=null;brandBanner=null;voiceStatusView=null;maintenanceConnection=null;loginPage=false;loginCompleted=false;loginButton=null;activationPage=false;accountPage=false;scanPage=false;resultPage=false;syncPage=false;maintenancePage=false;homeAccount=null;homeChips=null;resultReceipt=null;loadRing=null;loadText=null;syncDetail=null;pageVersion++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(Color.WHITE);if(android.os.Build.VERSION.SDK_INT>=28){WindowManager.LayoutParams windowParams=getWindow().getAttributes();windowParams.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;getWindow().setAttributes(windowParams);}
         boolean login="景区工作人员登录".equals(title),home="一卡通核验端".equals(title);
         getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE|android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|(login?android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR:0)|(android.os.Build.VERSION.SDK_INT>=26?android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR:0));
@@ -344,9 +354,9 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);scroll.addView(outer);
         loginHeader=login;
-        LinearLayout banner=new LinearLayout(this);banner.setOrientation(LinearLayout.VERTICAL);banner.setGravity(android.view.Gravity.BOTTOM);banner.setPadding(dp(login?30:18),dp(24),dp(18),dp(login?40:34));banner.setBackground(artwork());banner.setMinimumHeight(dp(login?244:home?124:100));outer.addView(banner,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout banner=new LinearLayout(this);banner.setOrientation(LinearLayout.VERTICAL);banner.setGravity(android.view.Gravity.BOTTOM);banner.setPadding(dp(login?30:18),dp(login?16:24),dp(18),dp(login?28:34));banner.setBackground(artwork());banner.setMinimumHeight(dp(login?220:home?124:100));outer.addView(banner,new LinearLayout.LayoutParams(-1,-2));
         brandBanner=banner;banner.setOnClickListener(v->retryBrandImages());banner.setContentDescription("APP品牌背景");
-        if(login){brandIcon=new ImageView(this);brandIcon.setImageDrawable(new TerminalMarkDrawable());brandIcon.setContentDescription("核验端应用图标");LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(64),dp(64));iconLp.bottomMargin=dp(12);banner.addView(brandIcon,iconLp);}
+        if(login){brandIcon=new ImageView(this);brandIcon.setImageDrawable(new TerminalMarkDrawable());brandIcon.setContentDescription("核验端应用图标");brandIcon.setBackground(background(Color.WHITE,0));brandIcon.setClipToOutline(true);LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(64),dp(64));iconLp.bottomMargin=dp(12);banner.addView(brandIcon,iconLp);}
         LinearLayout top=new LinearLayout(this);top.setGravity(android.view.Gravity.CENTER_VERTICAL);
         if(!home&&!login&&!"设备维护".equals(title)){TerminalIconView back=new TerminalIconView(this,"back",Color.WHITE);top.addView(back,new LinearLayout.LayoutParams(dp(32),dp(32)));back.setContentDescription("返回首页");back.setOnClickListener(v->{if(runtime.hasSession())showAccount();else showLogin();});}
         TextView heading=text(login?"年票核验端":home?"年票核验端":title,login?27:home?24:22,login?INK:Color.WHITE);if(home||login)brandHeading=heading;heading.setTypeface(null,android.graphics.Typeface.BOLD);if(!home&&!login&&!"设备维护".equals(title))heading.setGravity(android.view.Gravity.CENTER);top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
@@ -361,7 +371,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
         addSupport(shell);
         android.widget.FrameLayout frame=new android.widget.FrameLayout(this);frame.addView(shell,new android.widget.FrameLayout.LayoutParams(-1,-1));
         LinearLayout notices=new LinearLayout(this);notices.setOrientation(LinearLayout.VERTICAL);notices.addView(appNotice);notices.addView(status);android.widget.FrameLayout.LayoutParams noticeLp=new android.widget.FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP);noticeLp.leftMargin=dp(14);noticeLp.rightMargin=dp(14);frame.addView(notices,noticeLp);
-        frame.setOnApplyWindowInsetsListener((view,insets)->{int topInset=insets.getSystemWindowInsetTop();if(android.os.Build.VERSION.SDK_INT>=28&&insets.getDisplayCutout()!=null)topInset=Math.max(topInset,insets.getDisplayCutout().getSafeInsetTop());banner.setPadding(dp(login?30:18),dp(24)+topInset,dp(18),dp(login?40:34));banner.setMinimumHeight(dp(login?244:home?124:100)+topInset);shell.setPadding(insets.getSystemWindowInsetLeft(),0,insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());android.widget.FrameLayout.LayoutParams lp=(android.widget.FrameLayout.LayoutParams)notices.getLayoutParams();lp.topMargin=topInset+dp(8);notices.setLayoutParams(lp);return insets.consumeSystemWindowInsets();});
+        frame.setOnApplyWindowInsetsListener((view,insets)->{int topInset=insets.getSystemWindowInsetTop();if(android.os.Build.VERSION.SDK_INT>=28&&insets.getDisplayCutout()!=null)topInset=Math.max(topInset,insets.getDisplayCutout().getSafeInsetTop());banner.setPadding(dp(login?30:18),dp(login?16:24)+topInset,dp(18),dp(login?28:34));banner.setMinimumHeight(dp(login?220:home?124:100)+topInset);shell.setPadding(insets.getSystemWindowInsetLeft(),0,insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());android.widget.FrameLayout.LayoutParams lp=(android.widget.FrameLayout.LayoutParams)notices.getLayoutParams();lp.topMargin=topInset+dp(8);notices.setLayoutParams(lp);return insets.consumeSystemWindowInsets();});
         setContentView(frame);frame.requestApplyInsets();applyAppConfig();return root;
     }
     private void addSupport(LinearLayout shell){

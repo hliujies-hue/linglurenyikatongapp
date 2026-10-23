@@ -32,6 +32,12 @@ final class TerminalAppUpdater {
     private File ready;
     private boolean awaitingPermission;
     TerminalAppUpdater(Activity activity) { this.activity=activity; }
+    interface CacheCallback {void done(boolean available);}
+    void inspectDownloaded(JSONObject config,CacheCallback callback){
+        final String hash=config.optString("updateSha256").trim().toLowerCase(Locale.ROOT),version=config.optString("latestVersion").trim();
+        new Thread(()->{boolean available=false;try{if(!RUNNING.get()&&hash.matches("[a-f0-9]{64}")){File cached=new File(new File(activity.getCacheDir(),"app-updates"),"update-"+hash+".apk");if(cached.isFile()&&hash.equals(sha256(cached))){validate(cached,version);ready=cached;available=true;}}}catch(Exception ignored){}final boolean result=available;ui(()->callback.done(result));},"terminal-apk-cache-check").start();
+    }
+    void installReady(){install();}
     void start(JSONObject config) {
         final String url=config.optString("updateUrl").trim();
         final String hash=config.optString("updateSha256").trim().toLowerCase(Locale.ROOT);
