@@ -15,6 +15,8 @@ public final class TerminalIconView extends View {
  case "record":canvas.drawRoundRect(5,3,19,21,2,2,p);for(int y=8;y<18;y+=4)canvas.drawLine(9,y,15,y,p);break;
  case "settings":canvas.drawCircle(12,12,6,p);canvas.drawCircle(12,12,2,p);for(int i=0;i<8;i++){double a=i*Math.PI/4;canvas.drawLine(12+(float)Math.cos(a)*7,12+(float)Math.sin(a)*7,12+(float)Math.cos(a)*10,12+(float)Math.sin(a)*10,p);}break;
  case "sdk":q.moveTo(12,2);q.lineTo(21,7);q.lineTo(21,17);q.lineTo(12,22);q.lineTo(3,17);q.lineTo(3,7);q.close();q.moveTo(3,7);q.lineTo(12,12);q.lineTo(21,7);q.moveTo(12,12);q.lineTo(12,22);break;
+ case "voice":q.moveTo(3,9);q.lineTo(7,9);q.lineTo(12,5);q.lineTo(12,19);q.lineTo(7,15);q.lineTo(3,15);q.close();canvas.drawArc(9,5,21,19,-60,120,false,p);break;
+ case "chart":q.moveTo(3,3);q.lineTo(3,21);q.lineTo(22,21);q.moveTo(7,17);q.lineTo(7,12);q.moveTo(12,17);q.lineTo(12,7);q.moveTo(17,17);q.lineTo(17,10);break;
  case "back":q.moveTo(15,4);q.lineTo(7,12);q.lineTo(15,20);break;
  case "pause":canvas.drawLine(8,5,8,19,p);canvas.drawLine(16,5,16,19,p);break;
  case "retry":canvas.drawArc(4,4,20,20,40,290,false,p);q.moveTo(20,5);q.lineTo(20,11);q.lineTo(14,11);break;
