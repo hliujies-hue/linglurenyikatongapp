@@ -33,6 +33,10 @@ public final class PlatformClient {
         if(!from.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")||!to.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))throw new IllegalArgumentException("请选择有效日期");
         return json("/api/terminal/statistics?startDate="+from+"&endDate="+to,null);
     }
+    public JSONObject records(String from,String to,String result,String receipt,String search,long scenic,int page) throws Exception {
+        if(!from.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")||!to.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))throw new IllegalArgumentException("请选择有效日期");
+        return json("/api/terminal/records?from="+from+"&to="+to+"&result="+java.net.URLEncoder.encode(result,"UTF-8")+"&receipt="+java.net.URLEncoder.encode(receipt,"UTF-8")+"&search="+java.net.URLEncoder.encode(search,"UTF-8")+"&scenicId="+scenic+"&page="+page,null);
+    }
     private JSONObject json(String path,JSONObject body) throws Exception {
         long wait=retryDelayMillis();if(wait>0)throw new ApiException(429,"平台限流保护中，请等待"+((wait+999)/1000)+"秒后重试；本机记录保留");
         HttpsURLConnection connection=(HttpsURLConnection)new URL(origin+path).openConnection();configure(connection);

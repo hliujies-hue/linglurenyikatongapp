@@ -6,6 +6,13 @@ public final class TerminalIconView extends View {
  public TerminalIconView(Context c,String name,int color){super(c);this.name=name;this.color=color;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
  protected void onDraw(Canvas canvas){float s=Math.min(getWidth(),getHeight());canvas.save();canvas.translate((getWidth()-s)/2,(getHeight()-s)/2);canvas.scale(s/24,s/24);p.setColor(color);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.9f);p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);Path q=new Path();
  switch(name){
+ case "device":p.setStyle(Paint.Style.FILL);p.setColor(0xff273441);canvas.drawRoundRect(5,1,19,23,2,2,p);p.setColor(0xff1774ae);canvas.drawRoundRect(6.5f,4,17.5f,19.5f,1,1,p);p.setColor(0xffa4dcff);canvas.drawCircle(12,12,3,p);p.setColor(0xffcbd5df);canvas.drawCircle(12,21,0.7f,p);p.setStyle(Paint.Style.STROKE);break;
+ case "lock":canvas.drawRoundRect(5,10,19,22,2,2,p);canvas.drawArc(8,2,16,16,180,180,false,p);canvas.drawLine(12,15,12,18,p);break;
+ case "close":canvas.drawCircle(12,12,10,p);canvas.drawLine(8,8,16,16,p);canvas.drawLine(16,8,8,16,p);break;
+ case "scan":for(int x=0;x<2;x++)for(int y=0;y<2;y++){float xx=x==0?2:22,yy=y==0?2:22;q.moveTo(xx+(x==0?5:-5),yy);q.lineTo(xx,yy);q.lineTo(xx,yy+(y==0?5:-5));}canvas.drawOval(8,6,16,17,p);break;
+ case "link":canvas.drawOval(3,3,14,14,p);canvas.drawOval(10,10,21,21,p);canvas.drawLine(8,16,16,8,p);break;
+ case "upload":canvas.drawArc(3,7,21,23,180,180,false,p);q.moveTo(12,21);q.lineTo(12,9);q.moveTo(8,13);q.lineTo(12,9);q.lineTo(16,13);break;
+ case "logout":q.moveTo(11,3);q.lineTo(4,3);q.lineTo(4,21);q.lineTo(11,21);q.moveTo(9,12);q.lineTo(22,12);q.lineTo(17,7);q.moveTo(22,12);q.lineTo(17,17);break;
  case "check":canvas.drawCircle(12,12,10,p);q.moveTo(7,12);q.lineTo(10.5f,15.5f);q.lineTo(17,8.5f);break;
  case "person":canvas.drawCircle(12,7,3.5f,p);q.moveTo(5,21);q.lineTo(5,19);q.cubicTo(5,11,19,11,19,19);q.lineTo(19,21);break;
  case "clock":canvas.drawCircle(12,12,9,p);q.moveTo(12,6);q.lineTo(12,12);q.lineTo(16,14);break;

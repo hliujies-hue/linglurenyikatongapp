@@ -542,6 +542,8 @@ public final class TerminalRuntime {
         result.put("libraryMode",session.optString("libraryMode")).put("sdkReady",engine.ready()).put("appVersion",TerminalProtocol.VERSION);
         main.post(()->done.done(result,null));
     }catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
+    public void records(String from,String to,String result,String receipt,String search,long scenic,int page,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject data=client.records(from,to,result,receipt,search,scenic,page);main.post(()->done.done(data,null));}catch(Exception e){markLoginExpired(e);main.post(()->done.done(null,safe(e)));}});}
+    public void recentRecords(Stats done){java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);format.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));String day=format.format(new java.util.Date());records(day,day,"","","",0,1,done);}
     public void statistics(String from,String to,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject result=client.statistics(from,to);main.post(()->done.done(result,null));}catch(Exception e){markLoginExpired(e);main.post(()->done.done(null,safe(e)));}});}
     private void failure(Throwable e){emit(safe(e));}
     private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":TerminalMessages.friendly(m);}
