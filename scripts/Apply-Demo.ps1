@@ -126,6 +126,8 @@ if($null -eq $entry) {
  [void]$filter.AppendChild($action); [void]$filter.AppendChild($category); [void]$entry.AppendChild($filter); [void]$app.AppendChild($entry)
 }
 [void]$entry.SetAttribute('exported',$android,'true')
+[void]$entry.SetAttribute('theme',$android,'@style/YktTerminalTheme')
+[void]$entry.SetAttribute('windowSoftInputMode',$android,'adjustResize')
 # Self-update only: private APK cache exposed through a read-granted FileProvider.
 $installPermission = $false
 foreach($permission in @($xml.manifest.SelectNodes('uses-permission'))) {

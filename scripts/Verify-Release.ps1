@@ -7,8 +7,8 @@ if($LASTEXITCODE -ne 0 -or ($actual | Out-String).Trim() -cne $Revision) { throw
 if($LASTEXITCODE -ne 0) { throw '存在已跟踪源码修改，请先核对；不覆盖本地修改。' }
 $gradle = Get-Content -LiteralPath (Join-Path $root 'overlays/app/build.gradle') -Raw
 $protocol = Get-Content -LiteralPath (Join-Path $root 'overlays/app/src/main/java/com/lingluren/yikatong/terminal/TerminalProtocol.java') -Raw
-if($gradle -notmatch 'versionCode\s+142\b' -or $gradle -notmatch 'versionName\s+"0\.7\.23-ui-reference"' -or $protocol -notmatch 'VERSION="0\.7\.23-ui-reference"') { throw 'APP版本与协议诊断版本不一致。' }
+if($gradle -notmatch 'versionCode\s+143\b' -or $gradle -notmatch 'versionName\s+"0\.7\.24-ui-resume"' -or $protocol -notmatch 'VERSION="0\.7\.24-ui-resume"') { throw 'APP版本与协议诊断版本不一致。' }
 if(-not (Test-Path -LiteralPath (Join-Path $root 'signing.properties') -PathType Leaf)) { throw '缺少原签名配置；请恢复原文件，禁止重新生成签名。' }
 if(-not (Test-Path -LiteralPath (Join-Path $root 'demo-work/gradlew.bat') -PathType Leaf)) { throw '缺少已有厂商Demo构建目录。' }
-Write-Host "源码核对通过：$Revision / 0.7.23-ui-reference / versionCode 142"
+Write-Host "源码核对通过：$Revision / 0.7.24-ui-resume / versionCode 143"
 Write-Host '此结果仅核对源码与构建前提，不代表APK构建或真机验收通过。'

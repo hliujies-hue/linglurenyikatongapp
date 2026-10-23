@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="YktTerminalTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#247BFA</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#EEF5FC</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:alertDialogTheme">@style/YktDialogTheme</item>
+        <item name="android:datePickerDialogTheme">@style/YktDialogTheme</item>
+    </style>
+    <style name="YktDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#247BFA</item>
+        <item name="android:textColorPrimary">#20334F</item>
+        <item name="android:textColorSecondary">#61738D</item>
+        <item name="android:windowBackground">@drawable/ykt_dialog_background</item>
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">88%</item>
+        <item name="android:backgroundDimAmount">0.35</item>
+    </style>
+</resources>
