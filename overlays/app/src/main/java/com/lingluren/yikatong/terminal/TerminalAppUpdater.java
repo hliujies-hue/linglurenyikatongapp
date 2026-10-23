@@ -105,7 +105,7 @@ final class TerminalAppUpdater {
         } catch(Exception e) {final boolean retained=file!=null&&file.isFile()&&file.length()>0;final String reason=e.getMessage()==null?"网络或安装包读取失败":e.getMessage();ui(()->{progress.dismiss();if(!cancelled)message("更新未完成",reason+(retained?"\n已保留下载进度，重新点击更新即可继续。":"\n请重新点击更新。"));});}
         finally {if(connection!=null)connection.disconnect();connection=null;RUNNING.set(false);}
     }
-    private AlertDialog.Builder dialog(){int theme=activity.getResources().getIdentifier("YktDialogTheme","style",activity.getPackageName());return new AlertDialog.Builder(new android.view.ContextThemeWrapper(activity,theme==0?android.R.style.Theme_Material_Light_Dialog_Alert:theme));}
+    private AlertDialog.Builder dialog(){int theme=activity.getResources().getIdentifier("YktDialogTheme","style",activity.getPackageName());return new TerminalDialogBuilder(new android.view.ContextThemeWrapper(activity,theme==0?android.R.style.Theme_Material_Light_Dialog_Alert:theme));}
     private void offerInstall(String version){dialog().setTitle("更新已准备好").setMessage("版本 "+version+"，点击安装即可完成更新。").setNegativeButton("稍后",null).setPositiveButton("安装更新",(d,w)->install()).show();}
     private static String sha256(File file) throws Exception {MessageDigest digest=MessageDigest.getInstance("SHA-256");try(InputStream in=new FileInputStream(file)){byte[] bytes=new byte[65536];int n;while((n=in.read(bytes))!=-1)digest.update(bytes,0,n);}StringBuilder value=new StringBuilder();for(byte b:digest.digest())value.append(String.format(Locale.ROOT,"%02x",b&255));return value.toString();}
     @SuppressWarnings("deprecation")

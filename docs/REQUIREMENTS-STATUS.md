@@ -676,3 +676,13 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 发布：0.7.26-terminal-feedback / versionCode 145；Verify-Release 及测试安装版本检查同步更新。
 - 验证通过：TerminalDecisionTextTest；test_diagnostic_back.py 执行生产返回方法；test_photo_rejection.py 执行生产照片同步方法，覆盖失败回执丢失、换会话、换照片、网络失败与批次继续处理。
 - 未完成验收：本环境无完整厂商 SDK/签名构建条件；完整 lintRelease、APK 构建及 Android 16 真机返回/视觉验收需在 Windows 构建后完成。未宣称真机通过。
+
+
+## APP-UNIFIED-UI-20261023 — 七张截图关联页面统一优化
+- 依据：用户要求一并优化截图中的弹窗、选择框、更新、卸载检查、备份及维护统计；基线 2f5f3f43a614dd48ecb7b71b601af5d18527a192。
+- 已实现：共用 TerminalDialogBuilder，圆角、正文行距、操作按钮与宽度统一，保持现有密码验证/取消回调；筛选改为带当前选中项的统一选择弹窗。
+- 已实现：提示由顶部覆盖改为导航上方独立预留提示区；页面安全区作用于完整页面，滚动内容不再进入状态栏。备份固定说明放入内容卡片，不弹浮层；备份导航归维护。
+- 已实现：维护统计数值区域统一高度，状态文字与数字对齐，并随运行状态刷新；卸载检查改为卡片内分项状态及后续操作，保留数据清理风险说明；重新验证账号输入框统一内边距。
+- 已实现：更新弹窗区分当前安装版本和平台发布版本，无新版本时隐藏无关更新说明，不再将较旧平台版本称为最新；断点续传和已下载安装逻辑保留；更新下载弹窗采用统一样式。
+- 版本：0.7.27-unified-ui / 146；实现入口 TerminalEntryActivity、TerminalDialogBuilder、TerminalChoiceSpinner、TerminalAppUpdater；版本核对与安装测试脚本同步。
+- 验证：新增 Android UI 类在 API29 android.jar 上 Java 编译通过；生产诊断返回方法回归通过。未执行完整厂商 APK 构建、lintRelease 或 Android16 视觉/键盘/弹窗真机验收，需 Windows 构建安装后核对，不能认定一比一视觉验收通过。
