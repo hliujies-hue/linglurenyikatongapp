@@ -686,3 +686,13 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 已实现：更新弹窗区分当前安装版本和平台发布版本，无新版本时隐藏无关更新说明，不再将较旧平台版本称为最新；断点续传和已下载安装逻辑保留；更新下载弹窗采用统一样式。
 - 版本：0.7.27-unified-ui / 146；实现入口 TerminalEntryActivity、TerminalDialogBuilder、TerminalChoiceSpinner、TerminalAppUpdater；版本核对与安装测试脚本同步。
 - 验证：新增 Android UI 类在 API29 android.jar 上 Java 编译通过；生产诊断返回方法回归通过。未执行完整厂商 APK 构建、lintRelease 或 Android16 视觉/键盘/弹窗真机验收，需 Windows 构建安装后核对，不能认定一比一视觉验收通过。
+
+
+## APP-LINT-APPCOMPAT-20261023 — 选择框继承兼容组件
+- 用户构建证据：0.7.27 / 146 在 lintRelease 报 AppCompatCustomView，TerminalChoiceSpinner 继承系统 Spinner；1 error / 419 warnings。
+- 原因：上一批仅用 android.jar 编译新增类，未覆盖 AppCompat Lint；当时不能将组件编译等同于完整构建通过。
+- 修复：TerminalChoiceSpinner 改为 androidx.appcompat.widget.AppCompatSpinner，将 app 模块旧 support appcompat 声明替换为显式 androidx.appcompat:appcompat:1.2.0，避免仅依赖厂商模块的传递依赖；保留选择回调及统一弹窗。
+- 不添加 suppress、不设置 baseline、不关闭 lint；版本仍为 0.7.27-unified-ui / 146（本版本尚未成功构建交付）。
+- 基线：391396536ba6338de6cb0e0bc9978d42068d0bca；平台不变，无需服务器更新。
+- 已核对：源码继承、构造器模式及显式依赖；完整 lintRelease、厂商 APK 构建及真机选择框验证仍需 Windows 环境执行，419 warnings 未声明已解决。
+- 补充验证：下载实际 AppCompat 1.2.0 / Core 1.3.0 AAR 的 classes.jar，联合 API29 android.jar 编译选择框与统一弹窗通过。构造器明确使用 android.widget.Spinner.MODE_DIALOG，避免 AppCompat 同名非公开字段遮蔽。此检查仍不等同完整 lintRelease。
