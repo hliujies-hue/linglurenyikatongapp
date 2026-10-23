@@ -596,3 +596,12 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 新增Android独立数据库仪器用例，覆盖三种会话状态中更新token后重启、序号/回执/人脸保留，以及错误会话和空token拒绝。当前环境没有Android SDK、完整厂商Demo或原正式签名，仪器用例未运行，APK未构建，Lint未执行，未安装或部署。
 - 交付：scripts/Verify-Release.ps1 -Revision <完整提交>核对HEAD、源码修改、139版本及原签名/Demo存在；版本兼容同步至四个现有手工压测脚本，未自动执行压测或启用任务。
 - 后续范围沿用用户最新要求：107228条合成特征已有记录，不新增20万测试要求。下一步为真机会话恢复、断网重启、失效权益删脸与多设备入园规则闭环，以及平台二期待办核实。详见docs/DELIVERY-0.7.20.md。
+
+
+## BUILD-LINT-20261023：0.7.20现场构建阻断修复
+
+- 现场：用户拉取77e5a430a476ecc88a992a8996e1a45cea0603fc，14组主机Java测试通过，Java编译通过；lintRelease报1项WrongConstant、414项警告，构建流程停止，未完成导出及覆盖安装。
+- 根因：TerminalEntryActivity.text使用Layout.BREAK_STRATEGY_SIMPLE，当前Android SDK的TextView参数注解要求LineBreaker常量。先前主机语法测试无法覆盖Android Lint。
+- 修复：API29及以上使用android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE；低版本保留系统默认换行策略；API23及以上仍禁用自动连字符。未关闭Lint、未添加忽略规则、未更改SDK或签名。
+- 版本保持0.7.20-session-stability/139，本次修正该版本构建入口；代码与本记录同提交，基线77e5a430a476ecc88a992a8996e1a45cea0603fc。平台无需更新。
+- 验证：已核对用户完整构建日志、修复前源码及API分支；本环境没有完整Android构建环境，修复后APK/Lint/真机未验证，须原电脑按固定提交重新运行Export-Apk.ps1与Test-Device.ps1 -Install。禁止用-DeferTests绕过本问题。
