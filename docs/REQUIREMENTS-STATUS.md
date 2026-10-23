@@ -583,3 +583,16 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 实测归档：docs/testing/manual-camera-107228-20261020.json；107228条合成特征，101次相机查询，60次匹配本人、41次未匹配、0次匹配合成人脸；P95检索9.864479ms、帧处理至结果68.643125ms，SESSION_ENDED/ACTIVITY_LEFT、清理返回0。用户确认普通APP重新登录后恢复；并非20万真实人员准确率或端到端验收通过。
 - 验证：本次Java/PowerShell语法解析与更新范围检查；当前环境无Android SDK/vendor完整构建环境，未执行APK编译、Lint或新恢复入口真机验收。
 - 待验收：401后页面提示、错误密码不丢数据、正确密码恢复心跳与原6人核验、有待确认记录时续传、PAUSING/DRAINING保留状态；403及网络故障不误报登录失效。
+
+
+## SESSION-STABILITY-20261023：会话恢复与失效处理补齐
+
+- 基线：APP `51dbf9016bdf74bd8b5485826e6a26bcabf4f0fb`，配套平台核对至 `e11a15fee7c69b6a59c4b26f098d4c09a97151b1`。本批版本0.7.20-session-stability / 139；本节与代码同提交。平台接口未改动，本批不需要服务器部署或数据库迁移。
+- 已修复：重新验证原先在signingIn仍为true时调用tick，立即同步被跳过。现在先释放登录标志再回调界面并同步；仍须完成平台心跳/人员/记录条件才能核验。
+- 已修复：刷脸接口、今日统计、历史统计及同步退出异常中的401立即进入登录失效状态并暂停核验，保留待补传/待回执记录。403、429、503及网络异常不标为密码失效。不重放已有通过结果。
+- 已完善：验证窗口绑定原sessionId，排队期间会话变更则拒绝；核对登录返回账号，拒绝空凭证；保存失败不安装新客户端凭证；窗口关闭后的结果不再跳转页面。保留ACTIVE/PAUSING/DRAINING、原会话令牌、代次、序号、人脸库及回执。
+- 实现入口：TerminalRuntime.reauthenticate/markLoginExpired/acceptMatch/today/statistics/exit、TerminalEntryActivity.showReauthentication、TerminalStore.updateAccessToken。
+- 测试：执行生产恢复方法的隔离主机测试通过；14组Test-Client Java测试通过；授权持久化模拟测试通过；相机模拟测试初次因旧桩缺少SharedPreferences/Toast编译失败，补齐测试桩后通过，并新增镜头记忆及镜头缺失回退用例。全部overlay Java语法解析通过。主机测试不代表Android类型检查或真机通过。
+- 新增Android独立数据库仪器用例，覆盖三种会话状态中更新token后重启、序号/回执/人脸保留，以及错误会话和空token拒绝。当前环境没有Android SDK、完整厂商Demo或原正式签名，仪器用例未运行，APK未构建，Lint未执行，未安装或部署。
+- 交付：scripts/Verify-Release.ps1 -Revision <完整提交>核对HEAD、源码修改、139版本及原签名/Demo存在；版本兼容同步至四个现有手工压测脚本，未自动执行压测或启用任务。
+- 后续范围沿用用户最新要求：107228条合成特征已有记录，不新增20万测试要求。下一步为真机会话恢复、断网重启、失效权益删脸与多设备入园规则闭环，以及平台二期待办核实。详见docs/DELIVERY-0.7.20.md。

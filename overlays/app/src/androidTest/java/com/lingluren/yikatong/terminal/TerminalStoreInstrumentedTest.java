@@ -10,6 +10,21 @@ public final class TerminalStoreInstrumentedTest extends InstrumentationTestCase
  private JSONObject session(String id) throws Exception {return new JSONObject().put("protocolVersion",2).put("sessionId",id).put("sessionToken",repeat("b",64)).put("generation",1).put("fingerprint","journal-test-phone-1").put("state","ACTIVE").put("resetRequired",true);}
  private static String repeat(String s,int n){StringBuilder b=new StringBuilder();while(n-->0)b.append(s);return b.toString();}
  private JSONObject receipt(JSONObject event) throws Exception{return new JSONObject().put("persisted",true).put("eventId",event.getString("eventId")).put("sequence",event.getLong("sequence")).put("receipt",repeat("c",48)).put("result","PASS").put("open",true).put("duplicate",false);}
+ public void testReauthenticationPreservesJournalFeaturesAndDrainState() throws Exception {
+  String id=repeat("a",48);store.bind(session(id).put("username","staff").put("origin","https://example.test").put("accessToken","old"));
+  store.resetDone(id);store.saveFace(7,"original-hash",new byte[512]);JSONObject event=store.event(7,"NETWORK_UNAVAILABLE");
+  store.receipt(event,receipt(event));String pending=store.pending(id).get(0).toString();
+  for(String state:new String[]{"ACTIVE","PAUSING","DRAINING"}){
+   store.state(id,state);store.updateAccessToken(id,"renewed-"+state);store.close();store=new TerminalStore(context,name);
+   JSONObject active=store.active();assertEquals("renewed-"+state,active.getString("accessToken"));assertEquals(state,active.getString("state"));
+   assertEquals(id,active.getString("sessionId"));assertEquals(repeat("b",64),active.getString("sessionToken"));assertEquals(1L,active.getLong("generation"));
+   assertTrue(active.getBoolean("resetDone"));assertEquals(1L,active.getLong("lastSequence"));assertEquals(1L,store.pendingCount(id));
+   assertEquals(pending,store.pending(id).get(0).toString());assertNotNull(store.faceFeature(7,"original-hash"));
+  }
+  try{store.updateAccessToken(repeat("d",48),"wrong-session");fail("updated another session");}catch(IllegalStateException expected){}
+  try{store.updateAccessToken(id,"");fail("saved empty token");}catch(IllegalArgumentException expected){}
+  assertEquals("renewed-DRAINING",store.active().getString("accessToken"));assertEquals(pending,store.pending(id).get(0).toString());
+ }
  public void testJournalSurvivesRestartAndNeverReplaysAdmission() throws Exception {
   String id=repeat("a",48);store.bind(session(id));JSONObject event=store.event(42,"PLATFORM_TIMEOUT");assertEquals(1,event.getLong("sequence"));
   store.close();store=new TerminalStore(context,name);assertEquals(1,store.pendingCount(id));JSONObject saved=store.pending(id).get(0);assertEquals(event.toString(),saved.toString());

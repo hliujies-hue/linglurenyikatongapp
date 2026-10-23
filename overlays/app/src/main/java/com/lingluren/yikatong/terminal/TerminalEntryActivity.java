@@ -554,6 +554,7 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
     }
     private void showReauthentication(){
         if(!runtime.hasSession()){showLogin();return;}
+        final String expectedSessionId=runtime.currentSessionId();
         final EditText password=new EditText(this);password.setSingleLine();password.setHint("请输入当前账号密码");
         password.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
         final android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this)
@@ -564,8 +565,8 @@ public final class TerminalEntryActivity extends Activity implements TerminalRun
             String value=password.getText().toString();
             if(value.isEmpty()){password.setError("请输入密码");return;}
             dialog.getButton(-1).setEnabled(false);password.setText("");
-            runtime.reauthenticate(value,error->{
-                if(destroyed)return;
+            runtime.reauthenticate(expectedSessionId,value,error->{
+                if(destroyed||!dialog.isShowing())return;
                 if(error==null){dialog.dismiss();showSyncPage();}
                 else {dialog.getButton(-1).setEnabled(true);password.setError(error);}
             });

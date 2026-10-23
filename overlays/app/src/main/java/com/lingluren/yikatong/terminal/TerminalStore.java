@@ -136,6 +136,7 @@ public final class TerminalStore extends SQLiteOpenHelper {
         }finally{db.endTransaction();}
     }
     public void updateAccessToken(String sessionId,String token) throws Exception {
+        if(token==null||token.isEmpty())throw new IllegalArgumentException("平台未返回登录凭证");
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try {
             JSONObject current=active();

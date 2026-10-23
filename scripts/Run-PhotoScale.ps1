@@ -66,7 +66,7 @@ try {
  }
  Adb @('get-state') | Out-Host
  $installed=(Adb @('shell','dumpsys','package',$package)) -join "`n"
- if($installed -notmatch 'versionCode=(136|137|138)\b'){throw 'Production versionCode 136, 137 or 138 required; no production APK will be installed'}
+ if($installed -notmatch 'versionCode=(136|137|138|139)\b'){throw 'Production versionCode 136, 137, 138 or 139 required; no production APK will be installed'}
  & (Join-Path $PSScriptRoot 'Test-NativeScale.ps1') -PrepareOnly
  $apk=Join-Path (Split-Path $PSScriptRoot -Parent) 'demo-work\app\build\outputs\apk\androidTest\release\app-release-androidTest.apk'
  Adb @('install','-r',$apk) | Out-Host

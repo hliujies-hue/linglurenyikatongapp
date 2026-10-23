@@ -7,7 +7,10 @@ import tempfile
 import shutil
 
 SOURCES = {
-'android/app/Activity.java': '''package android.app; public class Activity { public android.view.WindowManager getWindowManager(){return new android.view.WindowManager();} }''',
+'android/content/Context.java': '''package android.content; public class Context {public static final int MODE_PRIVATE=0;private final SharedPreferences preferences=new SharedPreferences();public SharedPreferences getSharedPreferences(String name,int mode){return preferences;}}''',
+'android/content/SharedPreferences.java': '''package android.content; public class SharedPreferences {private final java.util.Map<String,Integer> values=new java.util.HashMap<>();public int getInt(String key,int fallback){return values.getOrDefault(key,fallback);}public boolean contains(String key){return values.containsKey(key);}public Editor edit(){return new Editor();}public class Editor {public Editor putInt(String key,int value){values.put(key,value);return this;}public void apply(){}}}''',
+'android/widget/Toast.java': '''package android.widget; public class Toast {public static final int LENGTH_LONG=1;public static String last="";public static Toast makeText(android.content.Context context,String message,int duration){last=message;return new Toast();}public void show(){}}''',
+'android/app/Activity.java': '''package android.app; public class Activity extends android.content.Context { public android.view.WindowManager getWindowManager(){return new android.view.WindowManager();} }''',
 'android/view/WindowManager.java': '''package android.view; public class WindowManager {public Display getDefaultDisplay(){return new Display();} public static class Display {public int getRotation(){return 0;}}}''',
 'android/view/Surface.java': '''package android.view; public class Surface {public static final int ROTATION_90=1,ROTATION_180=2,ROTATION_270=3;}''',
 'android/graphics/SurfaceTexture.java': '''package android.graphics; public class SurfaceTexture {}''',
@@ -56,7 +59,12 @@ public class CameraLifecycleTest {
   check(dual.selectOtherLens()&&dual.start()&&Camera.opened==1,"switch back rear");dual.stop();
   Camera.count=1;TerminalCamera single=new TerminalCamera(new Activity(),runtime,new TextureView(),s->error[0]=s);
   check(single.start()&&!single.selectOtherLens()&&Camera.last.released&&error[0].contains("另一方向"),"single camera fallback and explicit message");
-  System.out.println("PASS: stale callbacks, cleanup exceptions, restart, permission, missing camera, NV21 and preview-only gate (fake Android)");
+  Camera.count=2;Activity remembered=new Activity();TerminalCamera first=new TerminalCamera(remembered,runtime,new TextureView(),s->error[0]=s);
+  check(first.start()&&first.selectOtherLens()&&first.start()&&Camera.opened==0,"select front");first.stop();
+  TerminalCamera restarted=new TerminalCamera(remembered,runtime,new TextureView(),s->error[0]=s);check(restarted.start()&&Camera.opened==0,"remember front across camera recreation");restarted.stop();
+  remembered.getSharedPreferences("terminal_camera",0).edit().putInt("selectedId",1).putInt("facing",Camera.CameraInfo.CAMERA_FACING_BACK).apply();Camera.count=1;
+  TerminalCamera fallback=new TerminalCamera(remembered,runtime,new TextureView(),s->error[0]=s);check(fallback.start()&&Camera.opened==0&&android.widget.Toast.last.contains("上次选择"),"missing preferred lens falls back with notice");fallback.stop();
+  System.out.println("PASS: lens persistence/fallback, stale callbacks, cleanup exceptions, restart, permission, missing camera, NV21 and preview-only gate (fake Android)");
  }
 }'''
 }

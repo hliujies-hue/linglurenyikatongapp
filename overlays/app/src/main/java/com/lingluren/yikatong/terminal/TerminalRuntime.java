@@ -48,6 +48,7 @@ public final class TerminalRuntime {
     private volatile boolean loginExpired;
     private volatile String lastSyncError="";
     public boolean loginExpired(){return loginExpired;}
+    public String currentSessionId(){JSONObject s=session;return s==null?"":s.optString("sessionId");}
     public String currentUsername(){JSONObject s=session;return s==null?"":s.optString("username");}
     private boolean markLoginExpired(Throwable e){
         if(!(e instanceof PlatformClient.ApiException)||((PlatformClient.ApiException)e).status!=401)return false;
@@ -55,21 +56,27 @@ public final class TerminalRuntime {
         lastSyncError="登录已失效，请重新验证当前账号；本地人员和待确认记录保留";
         emit(lastSyncError);return true;
     }
-    public synchronized void reauthenticate(String password,Done done){
+    public synchronized void reauthenticate(String expectedSessionId,String password,Done done){
         if(signingIn){complete(done,"上一笔登录仍在处理中");return;}
-        signingIn=true;pauseCamera();ready=false;
-        actor.execute(()->{try{
-            if(session==null)throw new IllegalStateException("当前没有保留的账号，请返回登录页");
+        if(password==null||password.isEmpty()){complete(done,"请输入当前账号密码");return;}
+        signingIn=true;pauseCamera();ready=false;platformSynced=false;
+        actor.execute(()->{String error=null;boolean restored=false;try{
+            if(session==null||!session.getString("sessionId").equals(expectedSessionId))throw new IllegalStateException("账号会话已变更，请重新打开验证窗口");
             PlatformClient renewed=new PlatformClient(session.getString("origin"));
             JSONObject reply=renewed.request("/api/terminal/login",new JSONObject().put("username",session.getString("username")).put("password",password));
+            if(!session.getString("username").equals(reply.optString("username")))throw new IllegalStateException("平台返回的账号与当前账号不一致，原会话已保留");
             String token=reply.getString("accessToken");
             if(token.isEmpty())throw new IllegalStateException("平台未返回登录凭证");
             store.updateAccessToken(session.getString("sessionId"),token);
             session=store.active();renewed.token(token);client=renewed;
             loginExpired=false;lastSyncError="";platformSynced=false;nextTick=0;syncFailures=0;
-            emit("账号验证成功，正在恢复平台同步；本地人员和记录保留");
-            complete(done,null);tick();
-        }catch(Exception e){complete(done,safe(e));}finally{signingIn=false;}});
+            restored=true;
+        }catch(Exception e){error=safe(e);}finally{signingIn=false;}
+            // Release the login gate before notifying the UI or attempting synchronization.
+            complete(done,error);
+            if(restored){emit("账号验证成功，正在恢复平台同步；本地人员和记录保留");tick();}
+            else {nextTick=0;emit(loginExpired?lastSyncError:"账号验证未完成："+error+"；原账号和记录保留，等待平台重新确认");}
+        });
     }
     private volatile String algorithmStallReason="";
     private volatile long viewEpoch;
@@ -417,7 +424,7 @@ public final class TerminalRuntime {
             if(!session.optBoolean("resetDone")&&!prepare()){nextTick=0;tick();complete(done,"正在加载人员库，完成后继续同步退出；原账号记录已保留");return;}drain();
             upload();finishDrain();
             complete(done,session==null?null:"正在完成原账号同步，请稍候");
-        }catch(Exception|LinkageError e){complete(done,safe(e)+"；原账号保留，请重试同步退出");}});
+        }catch(Exception|LinkageError e){markLoginExpired(e);complete(done,safe(e)+"；原账号保留，请重试同步退出");}});
     }
     private void drain() throws Exception {
         JSONObject current=store.active();client.request("/api/terminal/recovery/drain",TerminalProtocol.ref(current).put("lastSequence",current.getLong("lastSequence")));
@@ -489,7 +496,8 @@ public final class TerminalRuntime {
             }catch(Exception e){
                 if(!saved){ready=false;localFeedback(epoch,"network","网络异常，暂不可通行",new JSONObject().put("eventId",event.getString("eventId")).put("occurredAt",event.optString("occurredAt")));}
                 // A saved first response is never re-presented if only its ACK failed.
-                emit("记录等待补传或确认："+safe(e));
+                lastSyncError=safe(e);
+                if(!markLoginExpired(e))emit("记录等待补传或确认："+safe(e));
             }
         }catch(Exception|LinkageError e){ready=false;localFeedback(epoch,"sdk","设备尚未就绪，请联系工作人员");failure(e);}
         finally{frameQueued.set(false);}
@@ -518,14 +526,14 @@ public final class TerminalRuntime {
             complete(done,null);
         }catch(Exception e){complete(done,safe(e));}finally{java.util.Arrays.fill(password,'\0');}});
     }
-    public void today(Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);fmt.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));String day=fmt.format(new java.util.Date()),id=session.getString("sessionId");if(todayCache==null||!id.equals(todayCacheSession)||!day.equals(todayCacheDay)||SystemClock.elapsedRealtime()-todayCachedAt>15000){todayCache=client.request("/api/terminal/today",null);todayCacheSession=id;todayCacheDay=day;todayCachedAt=SystemClock.elapsedRealtime();}JSONObject result=new JSONObject(todayCache.toString());main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
+    public void today(Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");java.text.SimpleDateFormat fmt=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);fmt.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));String day=fmt.format(new java.util.Date()),id=session.getString("sessionId");if(todayCache==null||!id.equals(todayCacheSession)||!day.equals(todayCacheDay)||SystemClock.elapsedRealtime()-todayCachedAt>15000){todayCache=client.request("/api/terminal/today",null);todayCacheSession=id;todayCacheDay=day;todayCachedAt=SystemClock.elapsedRealtime();}JSONObject result=new JSONObject(todayCache.toString());main.post(()->done.done(result,null));}catch(Exception e){markLoginExpired(e);main.post(()->done.done(null,safe(e)));}});}
     public void localRecords(Stats done){actor.execute(()->{try{
         if(session==null)throw new IllegalStateException("请先登录");
         JSONObject result=store.dashboard(session.getString("sessionId"));
         result.put("libraryMode",session.optString("libraryMode")).put("sdkReady",engine.ready()).put("appVersion",TerminalProtocol.VERSION);
         main.post(()->done.done(result,null));
     }catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
-    public void statistics(String from,String to,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject result=client.statistics(from,to);main.post(()->done.done(result,null));}catch(Exception e){main.post(()->done.done(null,safe(e)));}});}
+    public void statistics(String from,String to,Stats done){actor.execute(()->{try{if(session==null)throw new IllegalStateException("请先登录");JSONObject result=client.statistics(from,to);main.post(()->done.done(result,null));}catch(Exception e){markLoginExpired(e);main.post(()->done.done(null,safe(e)));}});}
     private void failure(Throwable e){emit(safe(e));}
     private static String safe(Throwable e){String m=e.getMessage();return m==null||m.length()>180?"设备操作失败，请检查连接和算法状态":TerminalMessages.friendly(m);}
     private void complete(Done done,String error){main.post(()->done.done(error));}
