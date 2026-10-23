@@ -664,3 +664,15 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 修复：公共样式拆为YktTerminalThemeBase，API21/22使用不含该属性的YktTerminalTheme；values-v23提供同名样式覆盖并继承公共基础，API23+启用深色状态栏图标。未修改minSdk，未禁用Lint，未添加忽略或baseline。
 - 验证：两份XML解析、API21资源中无该属性、API23覆盖及公共父样式继承检查通过。此环境缺原厂商SDK/签名，未运行完整lintRelease或生成APK，需在Windows原构建环境复验。
 - 基线653efeb605ec2299d14ab6f8df05ba53a5d6acac，本节与修复同提交。保持0.7.25-channel-ui / 144，修复尚未成功构建的当前版本；平台无改动。
+
+
+## APP-FEEDBACK-20261023 — 景区端提示与诊断返回修复
+
+- 依据：用户三张截图及“请修改这个”；基线 b2bf3236481098a389d9f2e868e605ead18fefd3。
+- 已实现：移除诊断页顶部固定说明；系统返回与页面返回从诊断回到登录/原同步/维护/首页，失效会话优先回登录。
+- 已实现：移除景区端照片失败行、同步提示及概览展示；后台失败回执、同照片停止重试、更换照片恢复同步保持不变。
+- 已实现：旧单点限制文案转换为“该游客今日已在本景区其他账号或设备下完成单点核验，本次不予放行”；普通账号限制明确游客主体；覆盖历史记录详情、实时结果和旧默认播报，自定义文案保留。记录详情不再混入平台回执状态。
+- 实现入口：TerminalEntryActivity、TerminalRuntime、TerminalDecisionText；仅 APP 展示和导航调整，平台判定规则未变，服务器无需部署。
+- 发布：0.7.26-terminal-feedback / versionCode 145；Verify-Release 及测试安装版本检查同步更新。
+- 验证通过：TerminalDecisionTextTest；test_diagnostic_back.py 执行生产返回方法；test_photo_rejection.py 执行生产照片同步方法，覆盖失败回执丢失、换会话、换照片、网络失败与批次继续处理。
+- 未完成验收：本环境无完整厂商 SDK/签名构建条件；完整 lintRelease、APK 构建及 Android 16 真机返回/视觉验收需在 Windows 构建后完成。未宣称真机通过。

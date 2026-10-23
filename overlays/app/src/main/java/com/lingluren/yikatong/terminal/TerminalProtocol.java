@@ -3,7 +3,7 @@ import org.json.JSONObject;
 
 /** Wire validation shared by the durable journal and retry loop. */
 public final class TerminalProtocol {
-    public static final String VERSION="0.7.25-channel-ui";
+    public static final String VERSION="0.7.26-terminal-feedback";
     private TerminalProtocol(){}
     public static JSONObject ref(JSONObject session) throws Exception {
         return new JSONObject().put("sessionId",session.getString("sessionId")).put("sessionToken",session.getString("sessionToken")).put("generation",session.getLong("generation")).put("fingerprint",session.getString("fingerprint"));

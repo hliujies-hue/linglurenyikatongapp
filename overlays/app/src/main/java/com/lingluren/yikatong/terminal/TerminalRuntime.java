@@ -271,7 +271,7 @@ public final class TerminalRuntime {
         algorithms.call(()->{engine.delete(store,user);return null;});
         lastPhotoIssue=task.optString("personName","待核对人员")+"："+reason;
         ack.put("applied",false).put("photoRejected",true).put("localFaceRemoved",true).put("error",lastPhotoIssue);
-        emit("照片待处理："+lastPhotoIssue+"\n已停止重复传输，继续同步其他人员；更换照片后自动同步");
+        emit("正在同步人员信息…");
     }
     private void syncPeopleBatch() throws Exception {
         JSONArray tasks=client.request("/api/terminal/recovery/sync",TerminalProtocol.ref(session).put("pageSize",16)).getJSONArray("items");
@@ -376,17 +376,15 @@ public final class TerminalRuntime {
             +"\n账号："+profile.optString("accountName")+" · 规则："+rule
             +"\n平台配置：已同步 · 人员清单："+(result.optBoolean("rosterReady")?"已生成":"生成中")
             +"\n本地已保存特征："+store.faces()+" · 待同步："+result.optLong("pendingPeople")+" · 待回执："+result.optLong("pendingReceipts")
-            +"\n待确认入园记录："+pendingEvents+" · 照片待处理："+result.optLong("photoRejected")
+            +"\n待确认入园记录："+pendingEvents
             +"\n人员库："+("SHARED".equals(session.optString("libraryMode"))?"同平台共享 · 换账号保留":"旧版会话库")
             +"\n领路人脸算法："+(engine.ready()?"已就绪":"加载中")+" · APP："+TerminalProtocol.VERSION
-            +"\n平台状态更新时间："+result.optString("serverTime")
-            +(lastPhotoIssue.isEmpty()?"":"\n最近照片问题："+lastPhotoIssue);
+            +"\n平台状态更新时间："+result.optString("serverTime");
         String stage=TerminalSyncSchedule.stage(ready(),rosterReady,engine.ready(),result.optLong("pendingPeople"),result.optLong("pendingReceipts"),pendingEvents);
         if(!appBlockedReason().isEmpty())stage=appBlockedReason();
         else if(!result.optString("appBlockedReason").isEmpty())stage=result.optString("appBlockedReason");
         else if(!rosterReady&&result.optJSONObject("roster")!=null)stage=result.getJSONObject("roster").optString("message",stage);
         syncStep(ready()?"同步完成":!rosterReady?"等待平台生成人员清单":!engine.ready()?"加载本地特征":pendingPeople?"同步人员及回执":pendingEvents>0?"确认入园记录":"等待平台核验条件确认");
-        if(result.optLong("photoRejected")>0)stage+="\n另有"+result.optLong("photoRejected")+"项照片处理失败，对应人员暂不能刷脸；请管理员查看照片失败原因并更换照片";
         emit(stage);
     }
     private void tick(){
@@ -523,7 +521,7 @@ public final class TerminalRuntime {
     private void localFeedback(long epoch,String key,String fallback){localFeedback(epoch,key,fallback,new JSONObject());}
     private void localFeedback(long epoch,String key,String fallback,JSONObject outcome){latestOutcome=outcome;JSONObject messages=feedback.optJSONObject("messages"),item=messages==null?null:messages.optJSONObject(key);showResult(epoch,item==null?fallback:item.optString("text",fallback),feedback.optBoolean("voiceEnabled",true)?(item==null?fallback:item.optString("speech")):"",false,key);}
     private void showResult(long epoch,String text,String speech,boolean open){showResult(epoch,text,speech,open,open?"pass":"denied");}
-    private void showResult(long epoch,String text,String speech,boolean open,String type){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(text,speech,open,type);});}
+    private void showResult(long epoch,String text,String speech,boolean open,String type){main.post(()->{Listener l=listener;if(l!=null&&scanning&&epoch==viewEpoch)l.result(TerminalDecisionText.normalize(text),TerminalDecisionText.normalize(speech),open,type);});}
     private volatile JSONObject latestOutcome=new JSONObject();
     public JSONObject outcome(){try{return new JSONObject(latestOutcome.toString());}catch(Exception e){return new JSONObject();}}
     public boolean voiceAllowed(){return feedback.optBoolean("voiceEnabled",true);}
