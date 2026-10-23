@@ -19,7 +19,7 @@ function Adb([string[]]$A){$o=@(& $adb -s $Serial @A 2>&1);if($LASTEXITCODE -ne 
 $state=(Adb @('get-state')) -join ''
 if($state.Trim() -ne 'device'){throw 'Phone not authorized'}
 $installed=(Adb @('shell','dumpsys','package',$package)) -join "`n"
-if($installed -notmatch 'versionCode=(136|137|138|139|140|141|142|143|144|145|146)\b'){throw 'Expected existing app versionCode 136, 137, 138, 139, 140, 141, 142, 143, 144, 145 or 146. No downgrade/uninstall will be performed.'}
+if($installed -notmatch 'versionCode=(136|137|138|139|140|141|142|143|144|145|146|147)\b'){throw 'Expected existing app versionCode 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146 or 147. No downgrade/uninstall will be performed.'}
 $lockDir=Join-Path $env:LOCALAPPDATA 'Yikatong-TestLocks'
 New-Item -ItemType Directory -Path $lockDir -Force | Out-Null
 $lockName=($Serial -replace '[^A-Za-z0-9._-]','_')+'.lock'
@@ -39,7 +39,7 @@ try {
  Adb @('install','-r',$apk) | Out-Host
  Adb @('install','-r',$testApk) | Out-Host
  $installed=(Adb @('shell','dumpsys','package',$package)) -join "`n"
- if($installed -notmatch 'versionCode=146\b'){throw 'Manual test app version 146 not installed'}
+ if($installed -notmatch 'versionCode=147\b'){throw 'Manual test app version 147 not installed'}
  Adb @('shell','am','force-stop',$package) | Out-Null
  $runner="$package.test/$package.TerminalScaleRunner"
  $prepare=Adb @('shell','am','instrument','-w','-r','-e','class',"$package.TerminalManualScaleTest#testPrepareManualStorage",$runner)

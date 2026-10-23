@@ -24,7 +24,7 @@ function Invoke-Adb([string[]]$Arguments) {
 }
 $package='com.lingluren.yikatong.terminal'
 $installed=(Invoke-Adb @('shell','dumpsys','package',$package)) -join "`n"
-if($installed -notmatch 'versionCode=(136|137|138|139|140|141|142|143|144|145|146)\b') { throw 'Original APP versionCode136, 137, 138, 139, 140, 141, 142, 143, 144, 145 or 146 required; no install/downgrade of production app is performed' }
+if($installed -notmatch 'versionCode=(136|137|138|139|140|141|142|143|144|145|146|147)\b') { throw 'Original APP versionCode136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146 or 147 required; no install/downgrade of production app is performed' }
 $remote='/sdcard/Android/data/com.lingluren.yikatong.terminal/files/ykt-test-v2/feature-extract'
 if($DatasetId -ne 'legacy') { $remote="/sdcard/Android/data/$package/files/ykt-test-v2/feature-batches/$DatasetId" }
 $apk=Join-Path $root 'demo-work\app\build\outputs\apk\androidTest\release\app-release-androidTest.apk'

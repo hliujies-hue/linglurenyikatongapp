@@ -696,3 +696,12 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 基线：391396536ba6338de6cb0e0bc9978d42068d0bca；平台不变，无需服务器更新。
 - 已核对：源码继承、构造器模式及显式依赖；完整 lintRelease、厂商 APK 构建及真机选择框验证仍需 Windows 环境执行，419 warnings 未声明已解决。
 - 补充验证：下载实际 AppCompat 1.2.0 / Core 1.3.0 AAR 的 classes.jar，联合 API29 android.jar 编译选择框与统一弹窗通过。构造器明确使用 android.widget.Spinner.MODE_DIALOG，避免 AppCompat 同名非公开字段遮蔽。此检查仍不等同完整 lintRelease。
+
+
+## APP-UI-RECOVERY-20261023 — 0.7.27 真机回归问题处置
+- 用户证据：弹窗底部按钮挤压；首页统计下方大块空白；顶部深蓝色块割裂；另有多个点击无反应，具体入口和运行日志尚未提供。
+- 已确认代码问题：上一批固定64dp提示占位；共用弹窗在显示后异步改写系统按钮边距/尺寸和内部面板；安全区背景固定深蓝色。此前只做编译不足以证明真机交互/视觉正确。
+- 修复：移除 TerminalDialogBuilder 的 create/show 覆盖和内部面板、按钮、窗口运行时改造，完全交由标准 AlertDialog 测量和分发点击；移除 TerminalChoiceSpinner.performClick 重写，保留 AppCompatSpinner 标准选择弹窗；提示区按可见内容占位，隐藏时不留64dp空白；安全区使用品牌背景，不再固定深蓝。
+- 保留：API23分版本主题、AppCompat依赖、诊断返回、照片失败后台回执及换照片重试、缓存安装包/断点续传、单点提示修复和后台取消按查询结果处理。
+- 版本：0.7.28-ui-recovery / 147，覆盖升级，不卸载、不降级、不清除账号/授权/记录。基线 f2e1b297f7be75d4d7d194ea04f456437ef23305；服务器无需更新。
+- 验证范围：修改后的共用组件使用实际 AppCompat/Core/Android 类库编译；生产诊断返回回归。完整 lintRelease、APK及Android16真机点击尚未验收，不宣称所有无响应问题已定位或已解决。
