@@ -657,3 +657,10 @@ a80fde4 真机编译成功，但 native self-query 进程 SIGSEGV。用户 crash
 - 登录Logo加圆角裁切，标题区高度244dp调整为220dp并缩小上下留白，保留状态栏/刘海安全距离。
 - 版本0.7.25-channel-ui / 144，基线54f4a80459906bcf93855d9e3c6257a3c7225d7a；本节与实现同提交。平台配套增加字段、模板姓名、操作记录导出和渠道卡细粒度权限。
 - 验证：15项Java宿主测试通过；Android API检查仅剩缺失厂商/AndroidX依赖，不能算完整APK构建。缺原SDK/签名和真机，缓存安装、图片在线替换和视觉验收仍待实际设备；未部署。
+
+## APP-LINT-20261023：API21主题资源兼容修复
+
+- 用户实机构建证据：lintRelease报1个NewApi错误，公共values/ykt_themes.xml使用了API23才支持的android:windowLightStatusBar，项目minSdk为21。此前宿主测试/XML解析不足以证明Android Lint通过，这是本轮资源兼容遗漏。
+- 修复：公共样式拆为YktTerminalThemeBase，API21/22使用不含该属性的YktTerminalTheme；values-v23提供同名样式覆盖并继承公共基础，API23+启用深色状态栏图标。未修改minSdk，未禁用Lint，未添加忽略或baseline。
+- 验证：两份XML解析、API21资源中无该属性、API23覆盖及公共父样式继承检查通过。此环境缺原厂商SDK/签名，未运行完整lintRelease或生成APK，需在Windows原构建环境复验。
+- 基线653efeb605ec2299d14ab6f8df05ba53a5d6acac，本节与修复同提交。保持0.7.25-channel-ui / 144，修复尚未成功构建的当前版本；平台无改动。
